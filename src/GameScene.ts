@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { ALL_VOCAB } from './vocab';
+import { DEFAULT_GAME_DIFFICULTY, DIFFICULTY_SETTING_LIST, DIFFICULTY_SETTINGS, isGameDifficultyKey, type GameDifficultyKey, type GameDifficultySetting } from './difficultySettings';
 import { createAnswerOptions, createClue, learnedWordText } from './learning';
 import {
     CELL_SIZE,
@@ -33,6 +34,15 @@ import {
 } from './gameHelpers';
 import type { BuildSlot, ClueKind, Difficulty, Enemy, Point, Projectile, ProjectileKind, Prompt, Tower, TowerKind, TowerStats, WordEntry } from './gameTypes';
 
+const DIFFICULTY_STORAGE_KEY = 'vocabTowerDefenceDifficulty';
+const HEALTH_STORAGE_KEY = 'vocabTowerDefenceMonsterHealth';
+const MIN_HEALTH_MULTIPLIER = 0.7;
+const MAX_HEALTH_MULTIPLIER = 2.2;
+const HEALTH_SLIDER_WIDTH = 128;
+const ENEMY_SPACING_PADDING = 3;
+const COLLISION_RESTITUTION = 0.42;
+const WALL_RESTITUTION = 0.55;
+
 export class GameScene extends Phaser.Scene {
     private pathPoints: Point[] = [];
     private pathLengths: number[] = [];
@@ -45,6 +55,9 @@ export class GameScene extends Phaser.Scene {
     private nextTowerId = 1;
     private nextEnemyId = 1;
     private nextProjectileId = 1;
+    private difficultyKey: GameDifficultyKey = DEFAULT_GAME_DIFFICULTY;
+    private difficultySetting: GameDifficultySetting = DIFFICULTY_SETTINGS[DEFAULT_GAME_DIFFICULTY];
+    private monsterHealthMultiplier = 1;
     private lives = 20;
     private wave = 1;
     private spawnRemaining = 9;
@@ -62,12 +75,20 @@ export class GameScene extends Phaser.Scene {
     private rangePreview!: Phaser.GameObjects.Arc;
     private restartButton!: Phaser.GameObjects.Rectangle;
     private optionButtons: Array<{ bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text; word?: WordEntry }> = [];
+    private settingsButtons: Array<{ key: GameDifficultyKey; bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text }> = [];
+    private settingsNoteText!: Phaser.GameObjects.Text;
+    private healthSliderTrack!: Phaser.GameObjects.Rectangle;
+    private healthSliderFill!: Phaser.GameObjects.Rectangle;
+    private healthSliderKnob!: Phaser.GameObjects.Arc;
+    private healthSliderLabel!: Phaser.GameObjects.Text;
 
     constructor() {
         super('game');
     }
 
     create(): void {
+        this.loadDifficultySetting();
+        this.resetRoundState();
         this.cameras.main.setBackgroundColor('#08181b');
         this.buildPath();
         this.assignBuildSlotWords();
@@ -78,11 +99,45 @@ export class GameScene extends Phaser.Scene {
         this.nextSpawnAt = this.time.now + INITIAL_WAVE_GRACE_MS;
 
         this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+            if (this.isUiPointer(pointer.x, pointer.y)) {
+                return;
+            }
             this.handleBoardClick(pointer.x, pointer.y, this.time.now);
         });
 
-        this.setPromptStatus('Take a breath, pick a colored square, and solve its clue to build your first tower before the wave arrives.');
+        this.setPromptStatus(`${this.difficultySetting.label} difficulty selected. Pick a colored square and solve its clue before the wave arrives.`);
         this.updateHud();
+    }
+
+    private loadDifficultySetting(): void {
+        const stored = window.localStorage.getItem(DIFFICULTY_STORAGE_KEY);
+        this.difficultyKey = isGameDifficultyKey(stored) ? stored : DEFAULT_GAME_DIFFICULTY;
+        this.difficultySetting = DIFFICULTY_SETTINGS[this.difficultyKey];
+        const storedHealth = Number(window.localStorage.getItem(HEALTH_STORAGE_KEY));
+        this.monsterHealthMultiplier = Number.isFinite(storedHealth) ? clamp(storedHealth, MIN_HEALTH_MULTIPLIER, MAX_HEALTH_MULTIPLIER) : 1;
+    }
+
+    private resetRoundState(): void {
+        this.pathPoints = [];
+        this.pathLengths = [];
+        this.pathTotalLength = 0;
+        this.pathCells.clear();
+        this.buildSlots.clear();
+        this.towers = [];
+        this.enemies = [];
+        this.projectiles = [];
+        this.nextTowerId = 1;
+        this.nextEnemyId = 1;
+        this.nextProjectileId = 1;
+        this.lives = 20;
+        this.wave = 1;
+        this.spawnRemaining = 9;
+        this.spawnDelay = this.spawnDelayForWave(1);
+        this.nextSpawnAt = this.time.now + INITIAL_WAVE_GRACE_MS;
+        this.currentPrompt = undefined;
+        this.gameOver = false;
+        this.optionButtons = [];
+        this.settingsButtons = [];
     }
 
     update(time: number, delta: number): void {
@@ -169,8 +224,19 @@ export class GameScene extends Phaser.Scene {
     }
 
     private clueKindForSlot(col: number, row: number): ClueKind {
-        const clueKinds: ClueKind[] = ['definition', 'synonym', 'antonym'];
+        const clueKinds: ClueKind[] = ['definition', 'definition', 'synonym', 'antonym'];
         return clueKinds[Math.abs(col * 2 + row * 5) % clueKinds.length];
+    }
+
+    private chooseWeightedClueKind(): ClueKind {
+        const roll = Math.random();
+        if (roll < 0.5) {
+            return 'definition';
+        }
+        if (roll < 0.75) {
+            return 'synonym';
+        }
+        return 'antonym';
     }
 
     private drawArena(): void {
@@ -299,7 +365,9 @@ export class GameScene extends Phaser.Scene {
             });
         });
 
-        this.selectedText = this.add.text(SIDE_X, GRID_Y + 198, '', {
+        this.createSettingsMenu();
+
+        this.selectedText = this.add.text(SIDE_X, GRID_Y + 504, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '13px',
             color: '#9fe9dc',
@@ -314,6 +382,136 @@ export class GameScene extends Phaser.Scene {
             wordWrap: { width: 160 },
             lineSpacing: 4,
         });
+    }
+
+    private createSettingsMenu(): void {
+        this.add.text(SIDE_X, GRID_Y + 204, 'SETTINGS', {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '14px',
+            color: '#effffb',
+            fontStyle: 'bold',
+        });
+
+        this.add.text(SIDE_X, GRID_Y + 226, 'Difficulty', {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '12px',
+            color: '#b9fff3',
+        });
+
+        this.settingsButtons = [];
+        DIFFICULTY_SETTING_LIST.forEach((setting, index) => {
+            const x = SIDE_X + 78;
+            const y = GRID_Y + 262 + index * 38;
+            const bg = this.add.rectangle(x, y, 156, 30, 0x183238, 1);
+            bg.setInteractive({ useHandCursor: true });
+            const text = this.add.text(x, y, setting.label, {
+                fontFamily: 'Arial, Helvetica, sans-serif',
+                fontSize: '13px',
+                color: '#effffb',
+                fontStyle: 'bold',
+            });
+            text.setOrigin(0.5);
+            text.setInteractive({ useHandCursor: true });
+            const select = () => this.selectDifficulty(setting.key);
+            bg.on('pointerdown', select);
+            text.on('pointerdown', select);
+            this.settingsButtons.push({ key: setting.key, bg, text });
+        });
+
+        this.settingsNoteText = this.add.text(SIDE_X, GRID_Y + 386, '', {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '12px',
+            color: '#b9c9ca',
+            wordWrap: { width: 160 },
+            lineSpacing: 3,
+        });
+
+        this.createHealthSlider();
+
+        this.updateSettingsButtons();
+    }
+
+    private createHealthSlider(): void {
+        this.add.text(SIDE_X, GRID_Y + 426, 'Monster health', {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '12px',
+            color: '#b9fff3',
+        });
+
+        const x = SIDE_X + 78;
+        const y = GRID_Y + 454;
+        this.healthSliderTrack = this.add.rectangle(x, y, HEALTH_SLIDER_WIDTH, 8, 0x183238, 1);
+        this.healthSliderTrack.setStrokeStyle(1, 0x86e5d8, 0.42);
+        this.healthSliderTrack.setInteractive({ useHandCursor: true });
+        this.healthSliderFill = this.add.rectangle(x - HEALTH_SLIDER_WIDTH / 2, y, 1, 8, 0xff9bb2, 0.88);
+        this.healthSliderFill.setOrigin(0, 0.5);
+        this.healthSliderKnob = this.add.circle(x, y, 8, 0xffd1dc, 1);
+        this.healthSliderKnob.setStrokeStyle(2, 0xffffff, 0.72);
+        this.healthSliderKnob.setInteractive({ useHandCursor: true });
+        this.healthSliderLabel = this.add.text(SIDE_X, GRID_Y + 468, '', {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '12px',
+            color: '#d3f4ee',
+        });
+
+        const startDrag = (pointer: Phaser.Input.Pointer) => this.setMonsterHealthFromPointer(pointer.x);
+        this.healthSliderTrack.on('pointerdown', startDrag);
+        this.healthSliderKnob.on('pointerdown', startDrag);
+        this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+            if (pointer.isDown && this.isPointerNearHealthSlider(pointer.x, pointer.y)) {
+                this.setMonsterHealthFromPointer(pointer.x);
+            }
+        });
+
+        this.updateHealthSlider();
+    }
+
+    private selectDifficulty(key: GameDifficultyKey): void {
+        if (key === this.difficultyKey) {
+            this.setPromptStatus(`${this.difficultySetting.label} difficulty is already selected.`);
+            return;
+        }
+
+        window.localStorage.setItem(DIFFICULTY_STORAGE_KEY, key);
+        this.scene.restart();
+    }
+
+    private updateSettingsButtons(): void {
+        this.settingsButtons.forEach((button) => {
+            const setting = DIFFICULTY_SETTINGS[button.key];
+            const selected = button.key === this.difficultyKey;
+            button.bg.setFillStyle(selected ? setting.color : 0x183238, selected ? 0.34 : 1);
+            button.bg.setStrokeStyle(selected ? 3 : 1, setting.color, selected ? 0.95 : 0.42);
+            button.text.setColor(selected ? '#ffffff' : '#d3f4ee');
+        });
+
+        this.settingsNoteText.setText(`${this.difficultySetting.label}: ${this.difficultySetting.detail}\nChanging difficulty restarts wave 1.`);
+    }
+
+    private setMonsterHealthFromPointer(pointerX: number): void {
+        const left = SIDE_X + 78 - HEALTH_SLIDER_WIDTH / 2;
+        const ratio = clamp((pointerX - left) / HEALTH_SLIDER_WIDTH, 0, 1);
+        const value = MIN_HEALTH_MULTIPLIER + ratio * (MAX_HEALTH_MULTIPLIER - MIN_HEALTH_MULTIPLIER);
+        this.monsterHealthMultiplier = Math.round(value * 20) / 20;
+        window.localStorage.setItem(HEALTH_STORAGE_KEY, String(this.monsterHealthMultiplier));
+        this.updateHealthSlider();
+        this.setPromptStatus(`Monster health set to ${this.monsterHealthMultiplier.toFixed(2)}x. New monsters will use this health.`);
+    }
+
+    private isPointerNearHealthSlider(pointerX: number, pointerY: number): boolean {
+        const left = SIDE_X + 78 - HEALTH_SLIDER_WIDTH / 2 - 18;
+        const right = SIDE_X + 78 + HEALTH_SLIDER_WIDTH / 2 + 18;
+        const top = GRID_Y + 430;
+        const bottom = GRID_Y + 482;
+        return pointerX >= left && pointerX <= right && pointerY >= top && pointerY <= bottom;
+    }
+
+    private updateHealthSlider(): void {
+        const ratio = (this.monsterHealthMultiplier - MIN_HEALTH_MULTIPLIER) / (MAX_HEALTH_MULTIPLIER - MIN_HEALTH_MULTIPLIER);
+        const left = SIDE_X + 78 - HEALTH_SLIDER_WIDTH / 2;
+        this.healthSliderFill.width = Math.max(1, HEALTH_SLIDER_WIDTH * ratio);
+        this.healthSliderKnob.setPosition(left + HEALTH_SLIDER_WIDTH * ratio, GRID_Y + 454);
+        this.healthSliderLabel.setText(`${this.monsterHealthMultiplier.toFixed(2)}x health`);
     }
 
     private createPromptPanel(): void {
@@ -366,6 +564,10 @@ export class GameScene extends Phaser.Scene {
             color: '#b9c9ca',
             wordWrap: { width: 880 },
         });
+    }
+
+    private isUiPointer(x: number, y: number): boolean {
+        return x >= SIDE_X - 18 || y >= PANEL_Y;
     }
 
     private createRestartButton(): void {
@@ -423,10 +625,12 @@ export class GameScene extends Phaser.Scene {
         }
 
         const towerKind = slot.towerKind;
+        const clueKind = this.chooseWeightedClueKind();
+        slot.clueKind = clueKind;
         this.currentPrompt = this.createChallenge({
             mode: 'build',
             word: slot.word,
-            clueKind: slot.clueKind,
+            clueKind,
             col,
             row,
             towerKind,
@@ -449,10 +653,12 @@ export class GameScene extends Phaser.Scene {
             return;
         }
 
+        const clueKind = this.chooseWeightedClueKind();
+        tower.clueKind = clueKind;
         this.currentPrompt = this.createChallenge({
             mode: 'upgrade',
             word: tower.word,
-            clueKind: tower.clueKind,
+            clueKind,
             tower,
         });
         this.pulseTower(tower, difficultyColor(tower.word.difficulty), 0.22);
@@ -780,7 +986,7 @@ export class GameScene extends Phaser.Scene {
         if (this.spawnRemaining <= 0 && this.enemies.length === 0) {
             this.wave += 1;
             this.spawnRemaining = 8 + this.wave * 3;
-            this.spawnDelay = Math.max(430, 1050 - this.wave * 40);
+            this.spawnDelay = this.spawnDelayForWave(this.wave);
             this.nextSpawnAt = time + 2600;
             this.setPromptStatus(`Wave ${this.wave} is getting ready. You have a short breather for building and upgrades.`);
             return;
@@ -793,17 +999,29 @@ export class GameScene extends Phaser.Scene {
         }
     }
 
+    private spawnDelayForWave(wave: number): number {
+        return Math.max(
+            this.difficultySetting.minSpawnDelayMs,
+            this.difficultySetting.levelOneSpawnDelayMs - Math.max(0, wave - 1) * this.difficultySetting.waveSpawnStepMs,
+        );
+    }
+
+    private enemySpeedMultiplierForWave(wave: number): number {
+        return this.difficultySetting.levelOneSpeedMultiplier + Math.max(0, wave - 1) * this.difficultySetting.waveSpeedGrowth;
+    }
+
     private spawnEnemy(): void {
         const point = this.pathPoints[0];
         const waveBoost = Math.max(0, this.wave - 1);
         const variantRoll = Phaser.Math.Between(1, 10);
         const runner = variantRoll <= 2;
         const brute = variantRoll >= 9;
-        const hp = (runner ? 36 : brute ? 86 : 54) + waveBoost * (runner ? 9 : brute ? 21 : 14);
-        const speed = (runner ? 76 : brute ? 40 : 56) + waveBoost * 2.5;
+        const hp = Math.round(((runner ? 36 : brute ? 86 : 54) + waveBoost * (runner ? 9 : brute ? 21 : 14)) * this.monsterHealthMultiplier);
+        const radius = brute ? 15 : runner ? 10 : 12;
+        const speed = (runner ? 76 : brute ? 40 : 56) * this.enemySpeedMultiplierForWave(this.wave);
         const color = runner ? 0xffef73 : brute ? 0xff6f61 : 0xff9bb2;
 
-        const body = this.add.circle(point.x, point.y, brute ? 15 : runner ? 10 : 12, color, 1);
+        const body = this.add.circle(point.x, point.y, radius, color, 1);
         body.setStrokeStyle(2, 0x071114, 0.8);
         body.setDepth(6);
         const core = this.add.circle(point.x, point.y, brute ? 6 : 4, 0xffffff, 0.72);
@@ -826,6 +1044,8 @@ export class GameScene extends Phaser.Scene {
             hp,
             maxHp: hp,
             speed,
+            radius,
+            mass: radius * radius,
             baseColor: color,
             waypointIndex: 0,
             distanceTravelled: 0,
@@ -896,12 +1116,17 @@ export class GameScene extends Phaser.Scene {
                 this.updateEnemyHealthBar(enemy);
             }
         }
+
+        this.resolvePathTraffic();
+        this.resolveEnemyCollisions(time);
+        this.enemies.forEach((enemy) => this.constrainEnemyToPath(enemy, enemy.motion === 'knocked'));
     }
 
     private updateKnockedEnemy(enemy: Enemy, time: number, deltaSeconds: number): void {
         const nextX = enemy.body.x + enemy.vx * deltaSeconds;
         const nextY = enemy.body.y + enemy.vy * deltaSeconds;
-        this.setEnemyPosition(enemy, clamp(nextX, GRID_X - 24, GRID_X + GRID_WIDTH + 24), clamp(nextY, GRID_Y - 24, PLAY_BOTTOM + 24));
+        this.setEnemyPosition(enemy, nextX, nextY);
+        this.constrainEnemyToPath(enemy, true);
 
         const damping = Math.pow(0.08, deltaSeconds);
         enemy.vx *= damping;
@@ -950,10 +1175,179 @@ export class GameScene extends Phaser.Scene {
         } else {
             const direction = normalize(nearest.point.x - enemy.body.x, nearest.point.y - enemy.body.y);
             this.setEnemyPosition(enemy, enemy.body.x + direction.x * returnSpeed * deltaSeconds, enemy.body.y + direction.y * returnSpeed * deltaSeconds);
+            this.constrainEnemyToPath(enemy, false);
             enemy.body.setFillStyle(0xffd49a, 1);
         }
 
         this.updateEnemyHealthBar(enemy);
+    }
+
+    private resolvePathTraffic(): void {
+        const pathEnemies = this.enemies
+            .filter((enemy) => enemy.alive && enemy.motion === 'path')
+            .sort((a, b) => b.distanceTravelled - a.distanceTravelled);
+
+        for (let index = 1; index < pathEnemies.length; index += 1) {
+            const leader = pathEnemies[index - 1];
+            const follower = pathEnemies[index];
+            const minimumGap = leader.radius + follower.radius + ENEMY_SPACING_PADDING;
+            const currentGap = leader.distanceTravelled - follower.distanceTravelled;
+
+            if (currentGap >= minimumGap) {
+                continue;
+            }
+
+            follower.distanceTravelled = Math.max(0, leader.distanceTravelled - minimumGap);
+            const pathPosition = this.pointAtPathProgress(follower.distanceTravelled);
+            follower.waypointIndex = pathPosition.segmentIndex;
+            this.setEnemyPosition(follower, pathPosition.point.x, pathPosition.point.y);
+            this.updateEnemyHealthBar(follower);
+        }
+    }
+
+    private resolveEnemyCollisions(time: number): void {
+        const liveEnemies = this.enemies.filter((enemy) => enemy.alive);
+        for (let pass = 0; pass < 2; pass += 1) {
+            for (let firstIndex = 0; firstIndex < liveEnemies.length; firstIndex += 1) {
+                for (let secondIndex = firstIndex + 1; secondIndex < liveEnemies.length; secondIndex += 1) {
+                    this.resolveEnemyPairCollision(liveEnemies[firstIndex], liveEnemies[secondIndex], time);
+                }
+            }
+        }
+    }
+
+    private resolveEnemyPairCollision(first: Enemy, second: Enemy, time: number): void {
+        const dx = first.body.x - second.body.x;
+        const dy = first.body.y - second.body.y;
+        const minDistance = first.radius + second.radius + ENEMY_SPACING_PADDING;
+        let gap = Math.hypot(dx, dy);
+        let normal = gap > 0 ? { x: dx / gap, y: dy / gap } : this.fallbackCollisionNormal(first, second);
+
+        if (gap >= minDistance) {
+            return;
+        }
+
+        if (gap === 0) {
+            gap = 0.001;
+            normal = this.fallbackCollisionNormal(first, second);
+        }
+
+        const overlap = minDistance - gap;
+        const firstWeight = this.collisionMoveWeight(first);
+        const secondWeight = this.collisionMoveWeight(second);
+        const totalWeight = firstWeight + secondWeight || 1;
+        this.moveEnemyBy(first, normal.x * overlap * (firstWeight / totalWeight), normal.y * overlap * (firstWeight / totalWeight));
+        this.moveEnemyBy(second, -normal.x * overlap * (secondWeight / totalWeight), -normal.y * overlap * (secondWeight / totalWeight));
+
+        this.constrainEnemyToPath(first, first.motion === 'knocked');
+        this.constrainEnemyToPath(second, second.motion === 'knocked');
+
+        const knockbackImpact = first.motion === 'knocked' || second.motion === 'knocked';
+        if (!knockbackImpact) {
+            return;
+        }
+
+        const relativeVelocity = (first.vx - second.vx) * normal.x + (first.vy - second.vy) * normal.y;
+        const collisionSpeed = Math.max(0, -relativeVelocity, Math.hypot(first.vx, first.vy) * 0.22, Math.hypot(second.vx, second.vy) * 0.22);
+        if (collisionSpeed < 22) {
+            return;
+        }
+
+        const totalMass = first.mass + second.mass;
+        const impulse = collisionSpeed * (1 + COLLISION_RESTITUTION);
+        this.applyCollisionVelocity(first, normal.x * impulse * (second.mass / totalMass), normal.y * impulse * (second.mass / totalMass), time);
+        this.applyCollisionVelocity(second, -normal.x * impulse * (first.mass / totalMass), -normal.y * impulse * (first.mass / totalMass), time);
+
+        if (Math.random() < 0.35) {
+            this.spark((first.body.x + second.body.x) / 2, (first.body.y + second.body.y) / 2, 0xfff2a8, 4);
+        }
+    }
+
+    private collisionMoveWeight(enemy: Enemy): number {
+        if (enemy.motion === 'knocked') {
+            return 1;
+        }
+        if (enemy.motion === 'returning') {
+            return 0.72;
+        }
+        if (enemy.motion === 'stunned') {
+            return 0.46;
+        }
+        return 0.28;
+    }
+
+    private fallbackCollisionNormal(first: Enemy, second: Enemy): Point {
+        const angle = ((first.id * 97 + second.id * 53) % 360) * Phaser.Math.DEG_TO_RAD;
+        return { x: Math.cos(angle), y: Math.sin(angle) };
+    }
+
+    private moveEnemyBy(enemy: Enemy, dx: number, dy: number): void {
+        this.setEnemyPosition(enemy, enemy.body.x + dx, enemy.body.y + dy);
+        if (enemy.motion === 'path') {
+            const nearest = this.nearestPathPoint({ x: enemy.body.x, y: enemy.body.y });
+            enemy.distanceTravelled = Math.min(enemy.distanceTravelled, nearest.progress);
+        }
+    }
+
+    private applyCollisionVelocity(enemy: Enemy, vx: number, vy: number, time: number): void {
+        const impactSpeed = Math.hypot(vx, vy);
+        if (impactSpeed < 12) {
+            return;
+        }
+
+        enemy.vx += vx;
+        enemy.vy += vy;
+        if (impactSpeed >= 36 && enemy.motion !== 'knocked') {
+            enemy.motion = 'knocked';
+            enemy.knockbackUntil = Math.max(enemy.knockbackUntil, time + 180 + impactSpeed * 1.2);
+            enemy.stunnedUntil = Math.max(enemy.stunnedUntil, time + 90 + impactSpeed * 0.7);
+            enemy.body.setFillStyle(0xffd49a, 1);
+        }
+    }
+
+    private constrainEnemyToPath(enemy: Enemy, bounce: boolean): void {
+        if (!enemy.alive || this.pathPoints.length < 2) {
+            return;
+        }
+
+        const nearest = this.nearestPathPoint({ x: enemy.body.x, y: enemy.body.y });
+        const wallRadius = Math.max(8, PATH_WIDTH / 2 - enemy.radius - 5);
+        if (nearest.distance <= wallRadius) {
+            return;
+        }
+
+        let normal = normalize(enemy.body.x - nearest.point.x, enemy.body.y - nearest.point.y);
+        if (normal.x === 0 && normal.y === 0) {
+            normal = this.pathNormalAt(nearest.segmentIndex);
+        }
+
+        const correctedX = nearest.point.x + normal.x * wallRadius;
+        const correctedY = nearest.point.y + normal.y * wallRadius;
+        this.setEnemyPosition(enemy, correctedX, correctedY);
+
+        if (enemy.motion === 'path') {
+            enemy.distanceTravelled = nearest.progress;
+        }
+
+        if (!bounce) {
+            return;
+        }
+
+        const outwardVelocity = enemy.vx * normal.x + enemy.vy * normal.y;
+        if (outwardVelocity > 0) {
+            enemy.vx -= (1 + WALL_RESTITUTION) * outwardVelocity * normal.x;
+            enemy.vy -= (1 + WALL_RESTITUTION) * outwardVelocity * normal.y;
+            if (outwardVelocity > 80 && Math.random() < 0.2) {
+                this.spark(correctedX, correctedY, 0xb9fff3, 3);
+            }
+        }
+    }
+
+    private pathNormalAt(segmentIndex: number): Point {
+        const start = this.pathPoints[segmentIndex] ?? this.pathPoints[0];
+        const end = this.pathPoints[segmentIndex + 1] ?? this.pathPoints[this.pathPoints.length - 1];
+        const direction = normalize(end.x - start.x, end.y - start.y);
+        return { x: -direction.y, y: direction.x };
     }
 
     private setEnemyPosition(enemy: Enemy, x: number, y: number): void {
@@ -1680,6 +2074,8 @@ export class GameScene extends Phaser.Scene {
         this.hudText.setText(`Lives ${this.lives}\nWave ${this.wave}\nTowers ${this.towers.length}`);
         this.selectedText.setText(`Build pads ask clues.\nCorrect answers build.\nBuilt towers can level up.\nLevel cap: ${MAX_TOWER_LEVEL}`);
         this.waveText.setText(`${this.spawnRemaining} queued\n${this.enemies.length} on the path\nNext in ${nextWaveSeconds}s\n${this.projectiles.length} shots flying`);
+        this.updateSettingsButtons();
+        this.updateHealthSlider();
     }
 
     private updateHoverCell(): void {

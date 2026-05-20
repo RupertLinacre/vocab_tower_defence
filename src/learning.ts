@@ -3,12 +3,12 @@ import { choose, shuffle } from './gameHelpers';
 
 export function createClue(word: WordEntry, clueKind: ClueKind): string {
     if (clueKind === 'definition') {
-        return `Which word means "${word.shortDefinition}"?`;
+        return `Which word matches this definition: "${word.shortDefinition}"?`;
     }
     if (clueKind === 'synonym') {
-        return `Which word is similar to "${choose(word.synonyms)}"?`;
+        return `Which word is a synonym of "${choose(word.synonyms)}"?`;
     }
-    return `Which word is the opposite of "${choose(word.antonyms)}"?`;
+    return `Which word is an antonym of "${choose(word.antonyms)}"?`;
 }
 
 export function createAnswerOptions(word: WordEntry, allWords: WordEntry[]): WordEntry[] {

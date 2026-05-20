@@ -59,12 +59,12 @@ export function difficultyEmoji(difficulty: Difficulty): string {
 
 export function clueLabel(clueKind: ClueKind): string {
     if (clueKind === 'definition') {
-        return '📖 meaning clue';
+        return '📖 definition';
     }
     if (clueKind === 'synonym') {
-        return '🔁 similar clue';
+        return '🔁 synonym';
     }
-    return '🔄 opposite clue';
+    return '🔄 antonym';
 }
 
 export function towerIcon(kind: TowerKind): string {

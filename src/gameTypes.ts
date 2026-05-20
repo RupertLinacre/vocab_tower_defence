@@ -76,6 +76,8 @@ export type Enemy = {
     hp: number;
     maxHp: number;
     speed: number;
+    radius: number;
+    mass: number;
     baseColor: number;
     waypointIndex: number;
     distanceTravelled: number;
