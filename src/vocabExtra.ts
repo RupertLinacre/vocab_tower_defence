@@ -1,13 +1,4 @@
-type Difficulty = 'easy' | 'medium' | 'hard' | 'veryHard';
-
-type WordEntry = {
-    word: string;
-    difficulty: Difficulty;
-    shortDefinition: string;
-    definition: string;
-    synonyms: string[];
-    antonyms: string[];
-};
+import type { Difficulty, WordEntry } from './gameTypes';
 
 const e = (word: string, difficulty: Difficulty, shortDefinition: string, definition: string, synonyms: string[], antonyms: string[]): WordEntry => ({
     word,

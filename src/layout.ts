@@ -1,0 +1,15 @@
+export const SCREEN_WIDTH = 1600;
+export const SCREEN_HEIGHT = 1025;
+export const CELL_SIZE = 70;
+export const GRID_COLS = 18;
+export const GRID_ROWS = 10;
+export const GRID_X = 45;
+export const GRID_Y = 72;
+export const GRID_WIDTH = GRID_COLS * CELL_SIZE;
+export const GRID_HEIGHT = GRID_ROWS * CELL_SIZE;
+export const PATH_WIDTH = CELL_SIZE * 2.35;
+export const PLAY_BOTTOM = GRID_Y + GRID_HEIGHT;
+export const SIDE_X = GRID_X + GRID_WIDTH + 24;
+export const PANEL_Y = 812;
+export const MAX_TOWER_LEVEL = 5;
+export const INITIAL_WAVE_GRACE_MS = 6500;
