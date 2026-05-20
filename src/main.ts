@@ -1,9 +1,10 @@
 import Phaser from 'phaser';
 import './style.css';
+import { VOCAB_EXTRA } from './vocabExtra';
 
-type Difficulty = 'easy' | 'medium' | 'hard';
-type TowerKind = 'dart' | 'cannon' | 'missile' | 'laser' | 'ricochet';
-type ProjectileKind = 'dart' | 'cannon' | 'missile' | 'ricochet';
+type Difficulty = 'easy' | 'medium' | 'hard' | 'veryHard';
+type TowerKind = 'dart' | 'cannon' | 'missile' | 'laser' | 'ricochet' | 'cluster' | 'fire';
+type ProjectileKind = 'dart' | 'cannon' | 'missile' | 'ricochet' | 'cluster' | 'fragment' | 'fire';
 type ClueKind = 'definition' | 'synonym' | 'antonym';
 type ChallengeMode = 'build' | 'upgrade';
 type EnemyMotion = 'path' | 'knocked' | 'stunned' | 'returning';
@@ -40,6 +41,14 @@ type TowerStats = {
     damage: number;
     splash: number;
     speed: number;
+    homing?: number;
+    knockback?: number;
+    stunMs?: number;
+    fragments?: number;
+    burnDamage?: number;
+    burnDuration?: number;
+    spreadRadius?: number;
+    reflections?: number;
 };
 
 type Tower = {
@@ -75,6 +84,11 @@ type Enemy = {
     slowUntil: number;
     stunnedUntil: number;
     knockbackUntil: number;
+    burningUntil: number;
+    nextBurnTickAt: number;
+    burnDamage: number;
+    burnSpreadAt: number;
+    burnSpreadRadius: number;
     vx: number;
     vy: number;
     motion: EnemyMotion;
@@ -97,6 +111,13 @@ type Projectile = {
     splash: number;
     ttl: number;
     bornAt: number;
+    homing?: number;
+    knockback?: number;
+    stunMs?: number;
+    fragments?: number;
+    burnDamage?: number;
+    burnDuration?: number;
+    spreadRadius?: number;
     target?: Enemy;
     targetPoint?: Point;
     object: Phaser.GameObjects.Shape;
@@ -138,7 +159,7 @@ const PATH_WIDTH = CELL_SIZE * 2.35;
 const PLAY_BOTTOM = GRID_Y + GRID_HEIGHT;
 const SIDE_X = GRID_X + GRID_WIDTH + 24;
 const PANEL_Y = 812;
-const MAX_TOWER_LEVEL = 4;
+const MAX_TOWER_LEVEL = 5;
 
 const VOCAB: WordEntry[] = [
     {
@@ -239,7 +260,7 @@ const VOCAB: WordEntry[] = [
     },
     {
         word: 'ephemeral',
-        difficulty: 'hard',
+        difficulty: 'veryHard',
         shortDefinition: 'lasting briefly',
         definition: 'Lasting for only a very short time.',
         synonyms: ['brief', 'fleeting', 'transient'],
@@ -247,7 +268,7 @@ const VOCAB: WordEntry[] = [
     },
     {
         word: 'austere',
-        difficulty: 'hard',
+        difficulty: 'veryHard',
         shortDefinition: 'plain or strict',
         definition: 'Severe, plain, and without comfort or decoration.',
         synonyms: ['severe', 'plain', 'stern'],
@@ -255,7 +276,7 @@ const VOCAB: WordEntry[] = [
     },
     {
         word: 'ambiguous',
-        difficulty: 'hard',
+        difficulty: 'veryHard',
         shortDefinition: 'having more than one meaning',
         definition: 'Open to more than one interpretation; not clear.',
         synonyms: ['unclear', 'vague', 'equivocal'],
@@ -263,7 +284,7 @@ const VOCAB: WordEntry[] = [
     },
     {
         word: 'meticulous',
-        difficulty: 'hard',
+        difficulty: 'veryHard',
         shortDefinition: 'extremely careful',
         definition: 'Showing great attention to every detail.',
         synonyms: ['careful', 'thorough', 'painstaking'],
@@ -271,7 +292,7 @@ const VOCAB: WordEntry[] = [
     },
     {
         word: 'obstinate',
-        difficulty: 'hard',
+        difficulty: 'veryHard',
         shortDefinition: 'stubbornly refusing to change',
         definition: 'Stubbornly holding to an opinion or course of action.',
         synonyms: ['stubborn', 'unyielding', 'headstrong'],
@@ -279,13 +300,15 @@ const VOCAB: WordEntry[] = [
     },
     {
         word: 'volatile',
-        difficulty: 'hard',
+        difficulty: 'veryHard',
         shortDefinition: 'likely to change suddenly',
         definition: 'Likely to change suddenly and unpredictably.',
         synonyms: ['unstable', 'changeable', 'explosive'],
         antonyms: ['stable', 'steady'],
     },
 ];
+
+const ALL_VOCAB: WordEntry[] = [...VOCAB, ...VOCAB_EXTRA];
 
 const TOWER_DEFS: Record<TowerKind, TowerDefinition> = {
     dart: {
@@ -308,7 +331,7 @@ const TOWER_DEFS: Record<TowerKind, TowerDefinition> = {
         damage: 25,
         color: 0xff9f43,
         accent: 0xffdd99,
-        description: 'bomb knockback',
+        description: 'pure splash',
     },
     missile: {
         kind: 'missile',
@@ -319,7 +342,7 @@ const TOWER_DEFS: Record<TowerKind, TowerDefinition> = {
         damage: 26,
         color: 0x8dd15f,
         accent: 0xd8ff8c,
-        description: 'homing scatter',
+        description: 'homing impact',
     },
     laser: {
         kind: 'laser',
@@ -330,7 +353,7 @@ const TOWER_DEFS: Record<TowerKind, TowerDefinition> = {
         damage: 18,
         color: 0x65f4e8,
         accent: 0xffffff,
-        description: 'beam pierce',
+        description: 'reflecting beam',
     },
     ricochet: {
         kind: 'ricochet',
@@ -341,7 +364,29 @@ const TOWER_DEFS: Record<TowerKind, TowerDefinition> = {
         damage: 20,
         color: 0xc46bff,
         accent: 0xff86f7,
-        description: 'bouncing chaos',
+        description: 'wall bouncer',
+    },
+    cluster: {
+        kind: 'cluster',
+        name: 'Cluster',
+        difficulty: 'veryHard',
+        range: 245,
+        cooldown: 1500,
+        damage: 22,
+        color: 0xff6b6b,
+        accent: 0xfff0a6,
+        description: 'burst bomb',
+    },
+    fire: {
+        kind: 'fire',
+        name: 'Fire',
+        difficulty: 'veryHard',
+        range: 220,
+        cooldown: 1280,
+        damage: 8,
+        color: 0xff7a2f,
+        accent: 0xfff35b,
+        description: 'spreading burn',
     },
 };
 
@@ -349,6 +394,7 @@ const TOWER_KINDS_BY_DIFFICULTY: Record<Difficulty, TowerKind[]> = {
     easy: ['dart', 'cannon'],
     medium: ['missile', 'laser'],
     hard: ['ricochet'],
+    veryHard: ['cluster', 'fire'],
 };
 
 function distance(a: Point, b: Point): number {
@@ -364,6 +410,9 @@ function choose<T>(items: T[]): T {
 }
 
 function formatDifficulty(difficulty: Difficulty): string {
+    if (difficulty === 'veryHard') {
+        return 'Very Hard';
+    }
     return difficulty[0].toUpperCase() + difficulty.slice(1);
 }
 
@@ -374,7 +423,10 @@ function difficultyColor(difficulty: Difficulty): number {
     if (difficulty === 'medium') {
         return 0xf0a33a;
     }
-    return 0xe35b5b;
+    if (difficulty === 'hard') {
+        return 0xe35b5b;
+    }
+    return 0xa56bff;
 }
 
 function shuffle<T>(items: T[]): T[] {
@@ -393,7 +445,10 @@ function difficultyEmoji(difficulty: Difficulty): string {
     if (difficulty === 'medium') {
         return '🟠';
     }
-    return '🔴';
+    if (difficulty === 'hard') {
+        return '🔴';
+    }
+    return '🟣';
 }
 
 function clueLabel(clueKind: ClueKind): string {
@@ -419,7 +474,13 @@ function towerIcon(kind: TowerKind): string {
     if (kind === 'laser') {
         return '🔦';
     }
-    return '🌀';
+    if (kind === 'ricochet') {
+        return '🌀';
+    }
+    if (kind === 'cluster') {
+        return '💥';
+    }
+    return '🔥';
 }
 
 function projectPointToSegment(point: Point, start: Point, end: Point): { point: Point; distance: number; t: number } {
@@ -539,9 +600,10 @@ class GameScene extends Phaser.Scene {
     private assignBuildSlotWords(): void {
         this.buildSlots.clear();
         const pools: Record<Difficulty, WordEntry[]> = {
-            easy: VOCAB.filter((entry) => entry.difficulty === 'easy'),
-            medium: VOCAB.filter((entry) => entry.difficulty === 'medium'),
-            hard: VOCAB.filter((entry) => entry.difficulty === 'hard'),
+            easy: ALL_VOCAB.filter((entry) => entry.difficulty === 'easy'),
+            medium: ALL_VOCAB.filter((entry) => entry.difficulty === 'medium'),
+            hard: ALL_VOCAB.filter((entry) => entry.difficulty === 'hard'),
+            veryHard: ALL_VOCAB.filter((entry) => entry.difficulty === 'veryHard'),
         };
 
         for (let row = 0; row < GRID_ROWS; row += 1) {
@@ -553,7 +615,7 @@ class GameScene extends Phaser.Scene {
                 const center = this.cellCenter(col, row);
                 const nearest = this.nearestPathPoint(center);
                 const progressRatio = nearest.progress / this.pathTotalLength;
-                const difficulty: Difficulty = progressRatio < 0.34 ? 'easy' : progressRatio < 0.68 ? 'medium' : 'hard';
+                const difficulty: Difficulty = progressRatio < 0.28 ? 'easy' : progressRatio < 0.55 ? 'medium' : progressRatio < 0.82 ? 'hard' : 'veryHard';
                 const pool = pools[difficulty];
                 const wordIndex = Math.abs(Math.floor(nearest.progress / 35) + col * 7 + row * 11) % pool.length;
                 this.buildSlots.set(this.cellKey(col, row), {
@@ -683,6 +745,7 @@ class GameScene extends Phaser.Scene {
             { difficulty: 'easy', label: 'Easy: dart or cannon' },
             { difficulty: 'medium', label: 'Medium: missile or laser' },
             { difficulty: 'hard', label: 'Hard: ricochet' },
+            { difficulty: 'veryHard', label: 'Very hard: cluster or fire' },
         ];
         legendItems.forEach((item, index) => {
             const y = GRID_Y + 104 + index * 26;
@@ -866,8 +929,8 @@ class GameScene extends Phaser.Scene {
     }
 
     private makeAnswerOptions(word: WordEntry): WordEntry[] {
-        const sameDifficulty = shuffle(VOCAB.filter((entry) => entry.difficulty === word.difficulty && entry.word !== word.word));
-        const fallback = shuffle(VOCAB.filter((entry) => entry.difficulty !== word.difficulty && entry.word !== word.word));
+        const sameDifficulty = shuffle(ALL_VOCAB.filter((entry) => entry.difficulty === word.difficulty && entry.word !== word.word));
+        const fallback = shuffle(ALL_VOCAB.filter((entry) => entry.difficulty !== word.difficulty && entry.word !== word.word));
         return shuffle([word, ...sameDifficulty.slice(0, 3), ...fallback].slice(0, 4));
     }
 
@@ -1069,7 +1132,7 @@ class GameScene extends Phaser.Scene {
     }
 
     private nextTowerWord(difficulty: Difficulty, avoidWords: string[]): WordEntry {
-        const pool = VOCAB.filter((entry) => entry.difficulty === difficulty);
+        const pool = ALL_VOCAB.filter((entry) => entry.difficulty === difficulty);
         const unused = shuffle(pool.filter((entry) => !avoidWords.includes(entry.word)));
         if (unused.length > 0) {
             return unused[0];
@@ -1171,6 +1234,11 @@ class GameScene extends Phaser.Scene {
             slowUntil: 0,
             stunnedUntil: 0,
             knockbackUntil: 0,
+            burningUntil: 0,
+            nextBurnTickAt: 0,
+            burnDamage: 0,
+            burnSpreadAt: 0,
+            burnSpreadRadius: 0,
             vx: 0,
             vy: 0,
             motion: 'path',
@@ -1186,6 +1254,11 @@ class GameScene extends Phaser.Scene {
     private updateEnemies(time: number, delta: number): void {
         const deltaSeconds = delta / 1000;
         for (const enemy of [...this.enemies]) {
+            if (!enemy.alive) {
+                continue;
+            }
+
+            this.updateBurningEnemy(enemy, time);
             if (!enemy.alive) {
                 continue;
             }
@@ -1346,6 +1419,41 @@ class GameScene extends Phaser.Scene {
             return;
         }
 
+        if (tower.kind === 'cluster' || tower.kind === 'fire') {
+            const projectileKind: ProjectileKind = tower.kind;
+            const direction = normalize(target.body.x - tower.x, target.body.y - tower.y);
+            const color = projectileKind === 'cluster' ? 0xfff0a6 : 0xff8a2f;
+            const radius = projectileKind === 'cluster' ? 8 : 7;
+            const object = this.add.circle(tower.x, tower.y, radius, color, 1);
+            object.setStrokeStyle(2, 0xffffff, 0.6);
+            object.setDepth(10);
+            this.projectiles.push({
+                id: this.nextProjectileId,
+                kind: projectileKind,
+                x: tower.x,
+                y: tower.y,
+                vx: direction.x * stats.speed,
+                vy: direction.y * stats.speed,
+                speed: stats.speed,
+                damage: stats.damage,
+                splash: stats.splash,
+                ttl: 2900,
+                bornAt: time,
+                target,
+                targetPoint: { x: target.body.x, y: target.body.y },
+                object,
+                knockback: stats.knockback,
+                stunMs: stats.stunMs,
+                fragments: stats.fragments,
+                burnDamage: stats.burnDamage,
+                burnDuration: stats.burnDuration,
+                spreadRadius: stats.spreadRadius,
+                hitTimes: new Map<number, number>(),
+            });
+            this.nextProjectileId += 1;
+            return;
+        }
+
         const projectileKind: ProjectileKind = tower.kind === 'cannon' ? 'cannon' : tower.kind === 'missile' ? 'missile' : 'dart';
         const color = projectileKind === 'cannon' ? 0xffb352 : projectileKind === 'missile' ? 0xd9ff7d : 0xfff17a;
         const radius = projectileKind === 'cannon' ? 7 : projectileKind === 'missile' ? 6 : 4;
@@ -1367,6 +1475,9 @@ class GameScene extends Phaser.Scene {
             target,
             targetPoint: projectileKind === 'cannon' ? { x: target.body.x, y: target.body.y } : undefined,
             object,
+            homing: stats.homing,
+            knockback: stats.knockback,
+            stunMs: stats.stunMs,
             hitTimes: new Map<number, number>(),
         });
         this.nextProjectileId += 1;
@@ -1386,6 +1497,12 @@ class GameScene extends Phaser.Scene {
                 this.updateCannon(projectile, deltaSeconds);
             } else if (projectile.kind === 'ricochet') {
                 this.updateRicochet(projectile, time, deltaSeconds);
+            } else if (projectile.kind === 'cluster') {
+                this.updateCluster(projectile, deltaSeconds);
+            } else if (projectile.kind === 'fragment') {
+                this.updateFragment(projectile, deltaSeconds);
+            } else if (projectile.kind === 'fire') {
+                this.updateFireProjectile(projectile, deltaSeconds);
             } else {
                 this.updateDart(projectile, deltaSeconds);
             }
@@ -1406,7 +1523,6 @@ class GameScene extends Phaser.Scene {
 
         if (distance(projectile, { x: target.body.x, y: target.body.y }) < 14) {
             this.damageEnemy(target, projectile.damage, 0xfff17a);
-            this.knockEnemy(target, projectile, 65, 0, 0xfff17a);
             this.removeProjectile(projectile);
         }
     }
@@ -1420,7 +1536,92 @@ class GameScene extends Phaser.Scene {
         projectile.object.setPosition(projectile.x, projectile.y);
 
         if (distance(projectile, targetPoint) <= step + 6) {
-            this.explode(projectile.x, projectile.y, projectile.splash, projectile.damage, 0xff9f43, 380, 420);
+            this.explode(projectile.x, projectile.y, projectile.splash, projectile.damage, 0xff9f43, 0, 0);
+            this.removeProjectile(projectile);
+        }
+    }
+
+    private updateCluster(projectile: Projectile, deltaSeconds: number): void {
+        const targetPoint = projectile.targetPoint ?? { x: projectile.x, y: projectile.y };
+        const direction = normalize(targetPoint.x - projectile.x, targetPoint.y - projectile.y);
+        const step = projectile.speed * deltaSeconds;
+        projectile.x += direction.x * step;
+        projectile.y += direction.y * step;
+        projectile.object.setPosition(projectile.x, projectile.y);
+        projectile.object.rotation += 0.16;
+        this.spawnSmoke(projectile.x - direction.x * 8, projectile.y - direction.y * 8, 0xffc66d, 0.28);
+
+        if (distance(projectile, targetPoint) <= step + 8) {
+            this.clusterBurst(projectile);
+            this.removeProjectile(projectile);
+        }
+    }
+
+    private clusterBurst(projectile: Projectile): void {
+        const fragmentCount = projectile.fragments ?? 6;
+        const knockback = projectile.knockback ?? 360;
+        const stunMs = projectile.stunMs ?? 220;
+        this.explode(projectile.x, projectile.y, projectile.splash * 0.72, projectile.damage * 0.55, 0xfff0a6, knockback * 0.7, stunMs * 0.45);
+
+        for (let index = 0; index < fragmentCount; index += 1) {
+            const angle = (Math.PI * 2 * index) / fragmentCount + Phaser.Math.FloatBetween(-0.22, 0.22);
+            const radius = Phaser.Math.Between(44, 92);
+            const targetPoint = {
+                x: projectile.x + Math.cos(angle) * radius,
+                y: projectile.y + Math.sin(angle) * radius,
+            };
+            const direction = normalize(targetPoint.x - projectile.x, targetPoint.y - projectile.y);
+            const shard = this.add.circle(projectile.x, projectile.y, 4, 0xfff0a6, 1);
+            shard.setStrokeStyle(1, 0xff6b6b, 0.9);
+            shard.setDepth(11);
+            this.projectiles.push({
+                id: this.nextProjectileId,
+                kind: 'fragment',
+                x: projectile.x,
+                y: projectile.y,
+                vx: direction.x * (projectile.speed * 1.2),
+                vy: direction.y * (projectile.speed * 1.2),
+                speed: projectile.speed * 1.2,
+                damage: projectile.damage * 0.62,
+                splash: Math.max(28, projectile.splash * 0.42),
+                ttl: 850,
+                bornAt: this.time.now,
+                targetPoint,
+                object: shard,
+                knockback: knockback * 0.82,
+                stunMs: stunMs * 0.55,
+                hitTimes: new Map<number, number>(),
+            });
+            this.nextProjectileId += 1;
+        }
+    }
+
+    private updateFragment(projectile: Projectile, deltaSeconds: number): void {
+        const targetPoint = projectile.targetPoint ?? { x: projectile.x, y: projectile.y };
+        const step = projectile.speed * deltaSeconds;
+        const direction = normalize(targetPoint.x - projectile.x, targetPoint.y - projectile.y);
+        projectile.x += direction.x * step;
+        projectile.y += direction.y * step;
+        projectile.object.setPosition(projectile.x, projectile.y);
+        this.spawnSmoke(projectile.x, projectile.y, 0xfff0a6, 0.2);
+
+        if (distance(projectile, targetPoint) <= step + 4) {
+            this.explode(projectile.x, projectile.y, projectile.splash, projectile.damage, 0xffc66d, projectile.knockback ?? 300, projectile.stunMs ?? 120);
+            this.removeProjectile(projectile);
+        }
+    }
+
+    private updateFireProjectile(projectile: Projectile, deltaSeconds: number): void {
+        const targetPoint = projectile.targetPoint ?? { x: projectile.x, y: projectile.y };
+        const direction = normalize(targetPoint.x - projectile.x, targetPoint.y - projectile.y);
+        const step = projectile.speed * deltaSeconds;
+        projectile.x += direction.x * step;
+        projectile.y += direction.y * step;
+        projectile.object.setPosition(projectile.x, projectile.y);
+        this.spawnSmoke(projectile.x - direction.x * 8, projectile.y - direction.y * 8, 0xff7a2f, 0.34);
+
+        if (distance(projectile, targetPoint) <= step + 8) {
+            this.igniteArea(projectile.x, projectile.y, projectile.splash, projectile.damage, projectile.burnDamage ?? 5, projectile.burnDuration ?? 2600, projectile.spreadRadius ?? 58);
             this.removeProjectile(projectile);
         }
     }
@@ -1436,8 +1637,9 @@ class GameScene extends Phaser.Scene {
 
         const target = projectile.target;
         const direction = normalize(target.body.x - projectile.x, target.body.y - projectile.y);
-        projectile.vx += (direction.x * projectile.speed - projectile.vx) * 0.08;
-        projectile.vy += (direction.y * projectile.speed - projectile.vy) * 0.08;
+        const homing = projectile.homing ?? 0.08;
+        projectile.vx += (direction.x * projectile.speed - projectile.vx) * homing;
+        projectile.vy += (direction.y * projectile.speed - projectile.vy) * homing;
         const velocity = normalize(projectile.vx, projectile.vy);
         projectile.vx = velocity.x * projectile.speed;
         projectile.vy = velocity.y * projectile.speed;
@@ -1448,7 +1650,7 @@ class GameScene extends Phaser.Scene {
         this.spawnSmoke(projectile.x - velocity.x * 9, projectile.y - velocity.y * 9, 0xb8ff8a);
 
         if (distance(projectile, { x: target.body.x, y: target.body.y }) < 18) {
-            this.explode(projectile.x, projectile.y, projectile.splash, projectile.damage, 0xb8ff8a, 310, 280);
+            this.explode(projectile.x, projectile.y, projectile.splash, projectile.damage, 0xb8ff8a, projectile.knockback ?? 310, projectile.stunMs ?? 280);
             this.removeProjectile(projectile);
         }
     }
@@ -1484,69 +1686,172 @@ class GameScene extends Phaser.Scene {
             if (time - lastHit > 420 && distance(projectile, { x: enemy.body.x, y: enemy.body.y }) < 20) {
                 projectile.hitTimes.set(enemy.id, time);
                 this.damageEnemy(enemy, projectile.damage, 0xff86f7);
-                this.knockEnemy(enemy, projectile, 130, 120, 0xff86f7);
                 this.chainZap(projectile.x, projectile.y, enemy.body.x, enemy.body.y, 0xff86f7);
+                this.removeProjectile(projectile);
+                return;
             }
         }
     }
 
     private fireLaser(tower: Tower, target: Enemy, stats: TowerStats): void {
         const color = TOWER_DEFS[tower.kind].accent;
+        const targetPoint = { x: target.body.x, y: target.body.y };
+        const segments: Array<{ start: Point; end: Point; multiplier: number }> = [
+            { start: { x: tower.x, y: tower.y }, end: targetPoint, multiplier: 0.42 },
+        ];
+
+        let currentStart = targetPoint;
+        let currentDirection = normalize(targetPoint.x - tower.x, targetPoint.y - tower.y);
+        for (let reflection = 0; reflection < (stats.reflections ?? 0); reflection += 1) {
+            const nearest = this.nearestPathPoint(currentStart);
+            const segmentStart = this.pathPoints[nearest.segmentIndex];
+            const segmentEnd = this.pathPoints[nearest.segmentIndex + 1];
+            const pathDirection = normalize(segmentEnd.x - segmentStart.x, segmentEnd.y - segmentStart.y);
+            let normal = normalize(currentStart.x - nearest.point.x, currentStart.y - nearest.point.y);
+            if (normal.x === 0 && normal.y === 0) {
+                normal = { x: -pathDirection.y, y: pathDirection.x };
+            }
+            const sidePoint = {
+                x: nearest.point.x + normal.x * (PATH_WIDTH / 2 - 8),
+                y: nearest.point.y + normal.y * (PATH_WIDTH / 2 - 8),
+            };
+            segments.push({ start: currentStart, end: sidePoint, multiplier: 0.38 * Math.pow(0.82, reflection) });
+            const dot = currentDirection.x * normal.x + currentDirection.y * normal.y;
+            let reflected = normalize(currentDirection.x - 2 * dot * normal.x, currentDirection.y - 2 * dot * normal.y);
+            if (reflected.x === 0 && reflected.y === 0) {
+                reflected = { x: pathDirection.x, y: pathDirection.y };
+            }
+            const travel = stats.range * (0.42 - Math.min(0.18, reflection * 0.04));
+            const endPoint = { x: sidePoint.x + reflected.x * travel, y: sidePoint.y + reflected.y * travel };
+            segments.push({ start: sidePoint, end: endPoint, multiplier: 0.32 * Math.pow(0.82, reflection) });
+            currentStart = endPoint;
+            currentDirection = reflected;
+        }
+
         const beam = this.add.graphics();
         beam.setDepth(14);
-        beam.lineStyle(9 + tower.level, color, 0.18);
-        beam.beginPath();
-        beam.moveTo(tower.x, tower.y);
-        beam.lineTo(target.body.x, target.body.y);
-        beam.strokePath();
-        beam.lineStyle(3 + Math.min(4, tower.level), 0xffffff, 0.88);
-        beam.beginPath();
-        beam.moveTo(tower.x, tower.y);
-        beam.lineTo(target.body.x, target.body.y);
-        beam.strokePath();
+        beam.lineStyle(9 + tower.level * 1.8, color, 0.22 + tower.level * 0.09);
+        for (const segment of segments) {
+            beam.beginPath();
+            beam.moveTo(segment.start.x, segment.start.y);
+            beam.lineTo(segment.end.x, segment.end.y);
+            beam.strokePath();
+        }
+        beam.lineStyle(3 + Math.min(5, tower.level), 0xffffff, 0.74 + tower.level * 0.04);
+        for (const segment of segments) {
+            beam.beginPath();
+            beam.moveTo(segment.start.x, segment.start.y);
+            beam.lineTo(segment.end.x, segment.end.y);
+            beam.strokePath();
+        }
         this.tweens.add({
             targets: beam,
             alpha: 0,
-            duration: 170,
+            duration: 210,
             onComplete: () => beam.destroy(),
         });
 
-        this.damageEnemy(target, stats.damage, color);
-
-        if (tower.level >= 2) {
-            const candidates = this.enemies
-                .filter((enemy) => enemy.alive && enemy.id !== target.id)
-                .map((enemy) => ({ enemy, dist: this.distanceToLine({ x: enemy.body.x, y: enemy.body.y }, tower, { x: target.body.x, y: target.body.y }) }))
-                .filter(({ dist }) => dist < 24 + tower.level * 4)
-                .slice(0, 3);
-            for (const { enemy } of candidates) {
-                this.damageEnemy(enemy, stats.damage * 0.45, color);
+        const hits = new Map<number, { enemy: Enemy; multiplier: number }>();
+        const beamWidth = 19 + tower.level * 4;
+        for (const segment of segments) {
+            for (const enemy of this.enemies) {
+                if (!enemy.alive) {
+                    continue;
+                }
+                const dist = this.distanceToLine({ x: enemy.body.x, y: enemy.body.y }, segment.start, segment.end);
+                if (dist <= beamWidth) {
+                    const previous = hits.get(enemy.id)?.multiplier ?? 0;
+                    hits.set(enemy.id, { enemy, multiplier: Math.max(previous, segment.multiplier) });
+                }
             }
         }
+        hits.set(target.id, { enemy: target, multiplier: 1 });
+        for (const { enemy, multiplier } of hits.values()) {
+            this.damageEnemy(enemy, stats.damage * multiplier, color);
+        }
 
-        this.spark(target.body.x, target.body.y, color, 10 + tower.level * 2);
+        this.spark(targetPoint.x, targetPoint.y, color, 10 + tower.level * 2);
+        for (const segment of segments.slice(1, 1 + Math.min(4, tower.level))) {
+            this.spark(segment.end.x, segment.end.y, color, 4 + tower.level);
+        }
     }
 
     private towerStats(tower: Tower): TowerStats {
         const def = TOWER_DEFS[tower.kind];
         const level = tower.level - 1;
-        const damage = Math.round(def.damage * (1 + level * 0.34));
-        const range = def.range + level * 16;
-        const cooldown = Math.max(180, def.cooldown * Math.pow(0.88, level));
+
+        if (tower.kind === 'dart') {
+            return {
+                range: def.range + level * 16,
+                cooldown: Math.max(115, def.cooldown * Math.pow(0.72, level)),
+                damage: Math.round(def.damage + level * 4),
+                splash: 0,
+                speed: 500 + level * 38,
+            };
+        }
 
         if (tower.kind === 'cannon') {
-            return { range, cooldown, damage, splash: 62 + level * 10, speed: 315 };
+            return {
+                range: def.range + level * 14,
+                cooldown: Math.max(230, def.cooldown * Math.pow(0.7, level)),
+                damage: Math.round(def.damage * (1 + level * 0.24)),
+                splash: 58 + level * 12,
+                speed: 310 + level * 18,
+            };
         }
         if (tower.kind === 'missile') {
-            return { range, cooldown, damage, splash: 58 + level * 8, speed: 245 + level * 18 };
+            return {
+                range: def.range + level * 20,
+                cooldown: Math.max(430, def.cooldown * Math.pow(0.86, level)),
+                damage: Math.round(def.damage * (1.32 + level * 0.42)),
+                splash: 54 + level * 10,
+                speed: 245 + level * 24,
+                homing: 0.1 + level * 0.045,
+                knockback: 230 + level * 68,
+                stunMs: 110 + level * 42,
+            };
         }
         if (tower.kind === 'ricochet') {
-            return { range, cooldown, damage, splash: 0, speed: 360 + level * 26 };
+            return {
+                range: def.range + level * 16,
+                cooldown: Math.max(620, def.cooldown * Math.pow(0.9, level)),
+                damage: Math.round(def.damage * (1 + level * 0.38)),
+                splash: 0,
+                speed: 380 + level * 32,
+            };
         }
         if (tower.kind === 'laser') {
-            return { range, cooldown, damage, splash: 0, speed: 0 };
+            return {
+                range: def.range + level * 18,
+                cooldown: Math.max(390, def.cooldown * Math.pow(0.88, level)),
+                damage: Math.round(def.damage * (1 + level * 0.32)),
+                splash: 0,
+                speed: 0,
+                reflections: level,
+            };
         }
-        return { range, cooldown, damage, splash: 0, speed: 465 + level * 18 };
+        if (tower.kind === 'cluster') {
+            return {
+                range: def.range + level * 18,
+                cooldown: Math.max(780, def.cooldown * Math.pow(0.87, level)),
+                damage: Math.round(def.damage * (1 + level * 0.31)),
+                splash: 74 + level * 11,
+                speed: 230 + level * 20,
+                knockback: 340 + level * 70,
+                stunMs: 160 + level * 42,
+                fragments: 5 + level,
+            };
+        }
+        return {
+            range: def.range + level * 18,
+            cooldown: Math.max(560, def.cooldown * Math.pow(0.86, level)),
+            damage: Math.round(def.damage + level * 3),
+            splash: 66 + level * 14,
+            speed: 260 + level * 18,
+            burnDamage: 5 + level * 2.2,
+            burnDuration: 2600 + level * 520,
+            spreadRadius: 54 + level * 12,
+        };
     }
 
     private findTarget(tower: Tower, range: number): Enemy | undefined {
@@ -1570,7 +1875,7 @@ class GameScene extends Phaser.Scene {
         enemy.body.setFillStyle(0xffffff, 1);
         this.time.delayedCall(55, () => {
             if (enemy.alive && enemy.motion === 'path') {
-                enemy.body.setFillStyle(enemy.slowUntil > this.time.now ? 0xaee8ff : enemy.baseColor, 1);
+                enemy.body.setFillStyle(enemy.burningUntil > this.time.now ? 0xff7a2f : enemy.slowUntil > this.time.now ? 0xaee8ff : enemy.baseColor, 1);
             }
         });
         this.damageNumber(enemy.body.x, enemy.body.y - 18, Math.round(damage), color);
@@ -1603,7 +1908,83 @@ class GameScene extends Phaser.Scene {
             if (dist <= radius) {
                 const falloff = 1 - dist / Math.max(1, radius);
                 this.damageEnemy(enemy, damage * (0.45 + falloff * 0.75), color);
-                this.knockEnemy(enemy, { x, y }, knockbackForce * (0.25 + falloff * 0.85), stunMs * falloff, color);
+                if (enemy.alive && (knockbackForce > 0 || stunMs > 0)) {
+                    this.knockEnemy(enemy, { x, y }, knockbackForce * (0.25 + falloff * 0.85), stunMs * falloff, color);
+                }
+            }
+        }
+    }
+
+    private igniteArea(x: number, y: number, radius: number, impactDamage: number, burnDamage: number, burnDuration: number, spreadRadius: number): void {
+        const pool = this.add.circle(x, y, radius * 0.3, 0xff7a2f, 0.18);
+        pool.setStrokeStyle(5, 0xfff35b, 0.72);
+        pool.setDepth(12);
+        this.tweens.add({
+            targets: pool,
+            radius,
+            alpha: 0,
+            duration: 520,
+            onComplete: () => pool.destroy(),
+        });
+        this.spark(x, y, 0xfff35b, 20);
+
+        for (const enemy of this.enemies) {
+            if (!enemy.alive) {
+                continue;
+            }
+            const dist = distance({ x, y }, { x: enemy.body.x, y: enemy.body.y });
+            if (dist <= radius) {
+                const falloff = 1 - dist / Math.max(1, radius);
+                this.damageEnemy(enemy, impactDamage * (0.28 + falloff * 0.52), 0xfff35b);
+                if (enemy.alive) {
+                    this.igniteEnemy(enemy, burnDamage * (0.82 + falloff * 0.36), burnDuration, spreadRadius);
+                }
+            }
+        }
+    }
+
+    private igniteEnemy(enemy: Enemy, burnDamage: number, burnDuration: number, spreadRadius: number): void {
+        const now = this.time.now;
+        enemy.burningUntil = Math.max(enemy.burningUntil, now + burnDuration);
+        enemy.nextBurnTickAt = Math.min(enemy.nextBurnTickAt || now, now + 60);
+        enemy.burnDamage = Math.max(enemy.burnDamage, burnDamage);
+        enemy.burnSpreadAt = Math.min(enemy.burnSpreadAt || now, now + 180);
+        enemy.burnSpreadRadius = Math.max(enemy.burnSpreadRadius, spreadRadius);
+        enemy.body.setFillStyle(0xff7a2f, 1);
+    }
+
+    private updateBurningEnemy(enemy: Enemy, time: number): void {
+        if (time >= enemy.burningUntil) {
+            if (enemy.burnDamage > 0) {
+                enemy.burnDamage = 0;
+                enemy.burnSpreadRadius = 0;
+                if (enemy.motion === 'path') {
+                    enemy.body.setFillStyle(enemy.baseColor, 1);
+                }
+            }
+            return;
+        }
+
+        enemy.body.setFillStyle(0xff7a2f, 0.86 + Math.sin(time / 90) * 0.12);
+        if (time >= enemy.nextBurnTickAt) {
+            enemy.nextBurnTickAt = time + 430;
+            this.damageEnemy(enemy, enemy.burnDamage, 0xfff35b);
+            if (!enemy.alive) {
+                return;
+            }
+            this.spawnSmoke(enemy.body.x, enemy.body.y, 0xffa23a, 0.34);
+        }
+
+        if (time >= enemy.burnSpreadAt) {
+            enemy.burnSpreadAt = time + 360;
+            for (const other of this.enemies) {
+                if (!other.alive || other.id === enemy.id || time < other.burningUntil) {
+                    continue;
+                }
+                if (distance({ x: enemy.body.x, y: enemy.body.y }, { x: other.body.x, y: other.body.y }) <= enemy.burnSpreadRadius) {
+                    this.igniteEnemy(other, enemy.burnDamage * 0.72, Math.max(1100, enemy.burningUntil - time - 250), enemy.burnSpreadRadius * 0.88);
+                    this.chainZap(enemy.body.x, enemy.body.y, other.body.x, other.body.y, 0xffa23a);
+                }
             }
         }
     }
