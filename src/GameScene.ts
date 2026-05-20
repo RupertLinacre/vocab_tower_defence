@@ -35,10 +35,24 @@ import {
 import type { BuildSlot, ClueKind, Difficulty, Enemy, Point, Projectile, ProjectileKind, Prompt, Tower, TowerKind, TowerStats, WordEntry } from './gameTypes';
 
 const DIFFICULTY_STORAGE_KEY = 'vocabTowerDefenceDifficulty';
+const WAVE_SIZE_STORAGE_KEY = 'vocabTowerDefenceWaveSize';
 const HEALTH_STORAGE_KEY = 'vocabTowerDefenceMonsterHealth';
-const MIN_HEALTH_MULTIPLIER = 0.7;
-const MAX_HEALTH_MULTIPLIER = 2.2;
-const HEALTH_SLIDER_WIDTH = 128;
+const MIN_WAVE_SIZE_MULTIPLIER = 0.5;
+const MAX_WAVE_SIZE_MULTIPLIER = 5;
+const MIN_HEALTH_MULTIPLIER = 0.4;
+const MAX_HEALTH_MULTIPLIER = 4;
+const SETTINGS_TITLE_Y = GRID_Y + 112;
+const DIFFICULTY_LABEL_Y = GRID_Y + 144;
+const DIFFICULTY_SLIDER_Y = GRID_Y + 178;
+const WAVE_SIZE_LABEL_Y = GRID_Y + 228;
+const WAVE_SIZE_SLIDER_Y = GRID_Y + 262;
+const HEALTH_LABEL_Y = GRID_Y + 312;
+const HEALTH_SLIDER_Y = GRID_Y + 346;
+const WAVE_STATUS_Y = GRID_Y + 424;
+const SETTINGS_SLIDER_X = SIDE_X + 78;
+const DIFFICULTY_SLIDER_WIDTH = 160;
+const WAVE_SIZE_SLIDER_WIDTH = 160;
+const HEALTH_SLIDER_WIDTH = 160;
 const ENEMY_SPACING_PADDING = 3;
 const COLLISION_RESTITUTION = 0.42;
 const WALL_RESTITUTION = 0.55;
@@ -57,16 +71,17 @@ export class GameScene extends Phaser.Scene {
     private nextProjectileId = 1;
     private difficultyKey: GameDifficultyKey = DEFAULT_GAME_DIFFICULTY;
     private difficultySetting: GameDifficultySetting = DIFFICULTY_SETTINGS[DEFAULT_GAME_DIFFICULTY];
+    private waveSizeMultiplier = 1;
     private monsterHealthMultiplier = 1;
     private lives = 20;
     private wave = 1;
+    private currentWaveTotal = 9;
     private spawnRemaining = 9;
     private spawnDelay = 1050;
     private nextSpawnAt = INITIAL_WAVE_GRACE_MS;
     private currentPrompt: Prompt | undefined;
     private gameOver = false;
     private hudText!: Phaser.GameObjects.Text;
-    private selectedText!: Phaser.GameObjects.Text;
     private promptText!: Phaser.GameObjects.Text;
     private promptStatusText!: Phaser.GameObjects.Text;
     private waveText!: Phaser.GameObjects.Text;
@@ -75,8 +90,14 @@ export class GameScene extends Phaser.Scene {
     private rangePreview!: Phaser.GameObjects.Arc;
     private restartButton!: Phaser.GameObjects.Rectangle;
     private optionButtons: Array<{ bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text; word?: WordEntry }> = [];
-    private settingsButtons: Array<{ key: GameDifficultyKey; bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text }> = [];
-    private settingsNoteText!: Phaser.GameObjects.Text;
+    private difficultySliderTrack!: Phaser.GameObjects.Rectangle;
+    private difficultySliderFill!: Phaser.GameObjects.Rectangle;
+    private difficultySliderKnob!: Phaser.GameObjects.Arc;
+    private difficultySliderLabel!: Phaser.GameObjects.Text;
+    private waveSizeSliderTrack!: Phaser.GameObjects.Rectangle;
+    private waveSizeSliderFill!: Phaser.GameObjects.Rectangle;
+    private waveSizeSliderKnob!: Phaser.GameObjects.Arc;
+    private waveSizeSliderLabel!: Phaser.GameObjects.Text;
     private healthSliderTrack!: Phaser.GameObjects.Rectangle;
     private healthSliderFill!: Phaser.GameObjects.Rectangle;
     private healthSliderKnob!: Phaser.GameObjects.Arc;
@@ -105,7 +126,7 @@ export class GameScene extends Phaser.Scene {
             this.handleBoardClick(pointer.x, pointer.y, this.time.now);
         });
 
-        this.setPromptStatus(`${this.difficultySetting.label} difficulty selected. Pick a colored square and solve its clue before the wave arrives.`);
+        this.showIdlePrompt(`${this.difficultySetting.label} difficulty selected.`);
         this.updateHud();
     }
 
@@ -113,6 +134,8 @@ export class GameScene extends Phaser.Scene {
         const stored = window.localStorage.getItem(DIFFICULTY_STORAGE_KEY);
         this.difficultyKey = isGameDifficultyKey(stored) ? stored : DEFAULT_GAME_DIFFICULTY;
         this.difficultySetting = DIFFICULTY_SETTINGS[this.difficultyKey];
+        const storedWaveSize = Number(window.localStorage.getItem(WAVE_SIZE_STORAGE_KEY));
+        this.waveSizeMultiplier = Number.isFinite(storedWaveSize) ? clamp(storedWaveSize, MIN_WAVE_SIZE_MULTIPLIER, MAX_WAVE_SIZE_MULTIPLIER) : 1;
         const storedHealth = Number(window.localStorage.getItem(HEALTH_STORAGE_KEY));
         this.monsterHealthMultiplier = Number.isFinite(storedHealth) ? clamp(storedHealth, MIN_HEALTH_MULTIPLIER, MAX_HEALTH_MULTIPLIER) : 1;
     }
@@ -131,13 +154,13 @@ export class GameScene extends Phaser.Scene {
         this.nextProjectileId = 1;
         this.lives = 20;
         this.wave = 1;
-        this.spawnRemaining = 9;
+        this.currentWaveTotal = this.enemyCountForWave(1);
+        this.spawnRemaining = this.currentWaveTotal;
         this.spawnDelay = this.spawnDelayForWave(1);
         this.nextSpawnAt = this.time.now + INITIAL_WAVE_GRACE_MS;
         this.currentPrompt = undefined;
         this.gameOver = false;
         this.optionButtons = [];
-        this.settingsButtons = [];
     }
 
     update(time: number, delta: number): void {
@@ -333,51 +356,23 @@ export class GameScene extends Phaser.Scene {
 
         this.add.text(SIDE_X, GRID_Y, 'WORD WORKSHOP', {
             fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '18px',
+            fontSize: '20px',
             color: '#effffb',
             fontStyle: 'bold',
         });
 
         this.hudText = this.add.text(SIDE_X, GRID_Y + 30, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '15px',
+            fontSize: '16px',
             color: '#d3f4ee',
             lineSpacing: 6,
         });
 
-        const legend = this.add.graphics();
-        const legendItems: Array<{ difficulty: Difficulty; label: string }> = [
-            { difficulty: 'easy', label: 'Easy: dart or cannon' },
-            { difficulty: 'medium', label: 'Medium: missile or laser' },
-            { difficulty: 'hard', label: 'Challenge: ricochet' },
-            { difficulty: 'veryHard', label: 'Super: cluster or fire' },
-        ];
-        legendItems.forEach((item, index) => {
-            const y = GRID_Y + 104 + index * 26;
-            legend.fillStyle(difficultyColor(item.difficulty), 0.22);
-            legend.fillRoundedRect(SIDE_X, y, 15, 15, 3);
-            legend.lineStyle(1, difficultyColor(item.difficulty), 0.7);
-            legend.strokeRoundedRect(SIDE_X, y, 15, 15, 3);
-            this.add.text(SIDE_X + 22, y - 1, item.label, {
-                fontFamily: 'Arial, Helvetica, sans-serif',
-                fontSize: '12px',
-                color: '#d3f4ee',
-            });
-        });
-
         this.createSettingsMenu();
 
-        this.selectedText = this.add.text(SIDE_X, GRID_Y + 504, '', {
+        this.waveText = this.add.text(SIDE_X, WAVE_STATUS_Y, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '13px',
-            color: '#9fe9dc',
-            wordWrap: { width: 160 },
-            lineSpacing: 4,
-        });
-
-        this.waveText = this.add.text(SIDE_X, GRID_Y + GRID_HEIGHT - 58, '', {
-            fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '13px',
+            fontSize: '14px',
             color: '#b9fff3',
             wordWrap: { width: 160 },
             lineSpacing: 4,
@@ -385,61 +380,144 @@ export class GameScene extends Phaser.Scene {
     }
 
     private createSettingsMenu(): void {
-        this.add.text(SIDE_X, GRID_Y + 204, 'SETTINGS', {
+        this.add.text(SIDE_X, SETTINGS_TITLE_Y, 'SETTINGS', {
             fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '14px',
+            fontSize: '15px',
             color: '#effffb',
             fontStyle: 'bold',
         });
 
-        this.add.text(SIDE_X, GRID_Y + 226, 'Difficulty', {
+        this.add.text(SIDE_X, DIFFICULTY_LABEL_Y, 'Difficulty', {
             fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '12px',
+            fontSize: '13px',
             color: '#b9fff3',
         });
-
-        this.settingsButtons = [];
-        DIFFICULTY_SETTING_LIST.forEach((setting, index) => {
-            const x = SIDE_X + 78;
-            const y = GRID_Y + 262 + index * 38;
-            const bg = this.add.rectangle(x, y, 156, 30, 0x183238, 1);
-            bg.setInteractive({ useHandCursor: true });
-            const text = this.add.text(x, y, setting.label, {
-                fontFamily: 'Arial, Helvetica, sans-serif',
-                fontSize: '13px',
-                color: '#effffb',
-                fontStyle: 'bold',
-            });
-            text.setOrigin(0.5);
-            text.setInteractive({ useHandCursor: true });
-            const select = () => this.selectDifficulty(setting.key);
-            bg.on('pointerdown', select);
-            text.on('pointerdown', select);
-            this.settingsButtons.push({ key: setting.key, bg, text });
-        });
-
-        this.settingsNoteText = this.add.text(SIDE_X, GRID_Y + 386, '', {
+        this.difficultySliderLabel = this.add.text(SIDE_X + 160, DIFFICULTY_LABEL_Y, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '12px',
-            color: '#b9c9ca',
-            wordWrap: { width: 160 },
-            lineSpacing: 3,
+            color: '#effffb',
+            fontStyle: 'bold',
         });
+        this.difficultySliderLabel.setOrigin(1, 0);
 
+        this.add.text(SIDE_X, WAVE_SIZE_LABEL_Y, 'Monsters / wave', {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '13px',
+            color: '#b9fff3',
+        });
+        this.waveSizeSliderLabel = this.add.text(SIDE_X + 160, WAVE_SIZE_LABEL_Y, '', {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '12px',
+            color: '#effffb',
+            fontStyle: 'bold',
+        });
+        this.waveSizeSliderLabel.setOrigin(1, 0);
+
+        this.add.text(SIDE_X, HEALTH_LABEL_Y, 'Monster health', {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '13px',
+            color: '#b9fff3',
+        });
+        this.healthSliderLabel = this.add.text(SIDE_X + 160, HEALTH_LABEL_Y, '', {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '12px',
+            color: '#effffb',
+            fontStyle: 'bold',
+        });
+        this.healthSliderLabel.setOrigin(1, 0);
+
+        this.createDifficultySlider();
+        this.createWaveSizeSlider();
         this.createHealthSlider();
 
-        this.updateSettingsButtons();
+        this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+            if (!pointer.isDown) {
+                return;
+            }
+
+            if (this.isPointerNearSettingsSlider(pointer.x, pointer.y, DIFFICULTY_SLIDER_Y, DIFFICULTY_SLIDER_WIDTH)) {
+                this.setDifficultyFromPointer(pointer.x);
+                return;
+            }
+
+            if (this.isPointerNearSettingsSlider(pointer.x, pointer.y, WAVE_SIZE_SLIDER_Y, WAVE_SIZE_SLIDER_WIDTH)) {
+                this.setWaveSizeFromPointer(pointer.x);
+                return;
+            }
+
+            if (this.isPointerNearSettingsSlider(pointer.x, pointer.y, HEALTH_SLIDER_Y, HEALTH_SLIDER_WIDTH)) {
+                this.setMonsterHealthFromPointer(pointer.x);
+            }
+        });
+    }
+
+    private createDifficultySlider(): void {
+        const x = SETTINGS_SLIDER_X;
+        const y = DIFFICULTY_SLIDER_Y;
+        this.difficultySliderTrack = this.add.rectangle(x, y, DIFFICULTY_SLIDER_WIDTH, 8, 0x183238, 1);
+        this.difficultySliderTrack.setStrokeStyle(1, 0x86e5d8, 0.42);
+        this.difficultySliderTrack.setInteractive({ useHandCursor: true });
+        this.difficultySliderFill = this.add.rectangle(x - DIFFICULTY_SLIDER_WIDTH / 2, y, 1, 8, this.difficultySetting.color, 0.88);
+        this.difficultySliderFill.setOrigin(0, 0.5);
+        this.difficultySliderKnob = this.add.circle(x, y, 9, this.difficultySetting.color, 1);
+        this.difficultySliderKnob.setStrokeStyle(2, 0xffffff, 0.72);
+        this.difficultySliderKnob.setInteractive({ useHandCursor: true });
+
+        DIFFICULTY_SETTING_LIST.forEach((setting, index) => {
+            const ratio = DIFFICULTY_SETTING_LIST.length === 1 ? 0 : index / (DIFFICULTY_SETTING_LIST.length - 1);
+            const markerX = x - DIFFICULTY_SLIDER_WIDTH / 2 + DIFFICULTY_SLIDER_WIDTH * ratio;
+            this.add.rectangle(markerX, y, 3, 16, setting.color, 0.95);
+        });
+        const softLabel = this.add.text(x - DIFFICULTY_SLIDER_WIDTH / 2, y + 15, DIFFICULTY_SETTING_LIST[0].label, {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '10px',
+            color: '#9ecac2',
+        });
+        softLabel.setOrigin(0, 0);
+        const hardLabel = this.add.text(x + DIFFICULTY_SLIDER_WIDTH / 2, y + 15, DIFFICULTY_SETTING_LIST[DIFFICULTY_SETTING_LIST.length - 1].label, {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '10px',
+            color: '#ffb7bf',
+        });
+        hardLabel.setOrigin(1, 0);
+
+        const select = (pointer: Phaser.Input.Pointer) => this.setDifficultyFromPointer(pointer.x);
+        this.difficultySliderTrack.on('pointerdown', select);
+        this.difficultySliderKnob.on('pointerdown', select);
+        this.updateDifficultySlider();
+    }
+
+    private createWaveSizeSlider(): void {
+        const x = SETTINGS_SLIDER_X;
+        const y = WAVE_SIZE_SLIDER_Y;
+        this.waveSizeSliderTrack = this.add.rectangle(x, y, WAVE_SIZE_SLIDER_WIDTH, 8, 0x183238, 1);
+        this.waveSizeSliderTrack.setStrokeStyle(1, 0x86e5d8, 0.42);
+        this.waveSizeSliderTrack.setInteractive({ useHandCursor: true });
+        this.waveSizeSliderFill = this.add.rectangle(x - WAVE_SIZE_SLIDER_WIDTH / 2, y, 1, 8, 0x9fe9dc, 0.88);
+        this.waveSizeSliderFill.setOrigin(0, 0.5);
+        this.waveSizeSliderKnob = this.add.circle(x, y, 8, 0xdffff8, 1);
+        this.waveSizeSliderKnob.setStrokeStyle(2, 0xffffff, 0.72);
+        this.waveSizeSliderKnob.setInteractive({ useHandCursor: true });
+        this.add.text(x - WAVE_SIZE_SLIDER_WIDTH / 2, y + 15, `${MIN_WAVE_SIZE_MULTIPLIER.toFixed(1)}x`, {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '10px',
+            color: '#9ecac2',
+        }).setOrigin(0, 0);
+        this.add.text(x + WAVE_SIZE_SLIDER_WIDTH / 2, y + 15, `${MAX_WAVE_SIZE_MULTIPLIER.toFixed(1)}x`, {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '10px',
+            color: '#9ecac2',
+        }).setOrigin(1, 0);
+
+        const select = (pointer: Phaser.Input.Pointer) => this.setWaveSizeFromPointer(pointer.x);
+        this.waveSizeSliderTrack.on('pointerdown', select);
+        this.waveSizeSliderKnob.on('pointerdown', select);
+        this.updateWaveSizeSlider();
     }
 
     private createHealthSlider(): void {
-        this.add.text(SIDE_X, GRID_Y + 426, 'Monster health', {
-            fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '12px',
-            color: '#b9fff3',
-        });
-
-        const x = SIDE_X + 78;
-        const y = GRID_Y + 454;
+        const x = SETTINGS_SLIDER_X;
+        const y = HEALTH_SLIDER_Y;
         this.healthSliderTrack = this.add.rectangle(x, y, HEALTH_SLIDER_WIDTH, 8, 0x183238, 1);
         this.healthSliderTrack.setStrokeStyle(1, 0x86e5d8, 0.42);
         this.healthSliderTrack.setInteractive({ useHandCursor: true });
@@ -448,48 +526,90 @@ export class GameScene extends Phaser.Scene {
         this.healthSliderKnob = this.add.circle(x, y, 8, 0xffd1dc, 1);
         this.healthSliderKnob.setStrokeStyle(2, 0xffffff, 0.72);
         this.healthSliderKnob.setInteractive({ useHandCursor: true });
-        this.healthSliderLabel = this.add.text(SIDE_X, GRID_Y + 468, '', {
+        this.add.text(x - HEALTH_SLIDER_WIDTH / 2, y + 15, `${MIN_HEALTH_MULTIPLIER.toFixed(1)}x`, {
             fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '12px',
-            color: '#d3f4ee',
-        });
+            fontSize: '10px',
+            color: '#d9afb8',
+        }).setOrigin(0, 0);
+        this.add.text(x + HEALTH_SLIDER_WIDTH / 2, y + 15, `${MAX_HEALTH_MULTIPLIER.toFixed(1)}x`, {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '10px',
+            color: '#d9afb8',
+        }).setOrigin(1, 0);
 
         const startDrag = (pointer: Phaser.Input.Pointer) => this.setMonsterHealthFromPointer(pointer.x);
         this.healthSliderTrack.on('pointerdown', startDrag);
         this.healthSliderKnob.on('pointerdown', startDrag);
-        this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-            if (pointer.isDown && this.isPointerNearHealthSlider(pointer.x, pointer.y)) {
-                this.setMonsterHealthFromPointer(pointer.x);
-            }
-        });
 
         this.updateHealthSlider();
     }
 
     private selectDifficulty(key: GameDifficultyKey): void {
         if (key === this.difficultyKey) {
-            this.setPromptStatus(`${this.difficultySetting.label} difficulty is already selected.`);
             return;
         }
 
+        this.difficultyKey = key;
+        this.difficultySetting = DIFFICULTY_SETTINGS[key];
         window.localStorage.setItem(DIFFICULTY_STORAGE_KEY, key);
-        this.scene.restart();
+        this.spawnDelay = this.spawnDelayForWave(this.wave);
+        if (this.spawnRemaining > 0) {
+            this.nextSpawnAt = this.time.now + this.spawnDelay;
+        }
+        this.updateDifficultySlider();
+        this.setPromptStatus(`${this.difficultySetting.label} difficulty selected. New monsters will use that pace.`);
     }
 
-    private updateSettingsButtons(): void {
-        this.settingsButtons.forEach((button) => {
-            const setting = DIFFICULTY_SETTINGS[button.key];
-            const selected = button.key === this.difficultyKey;
-            button.bg.setFillStyle(selected ? setting.color : 0x183238, selected ? 0.34 : 1);
-            button.bg.setStrokeStyle(selected ? 3 : 1, setting.color, selected ? 0.95 : 0.42);
-            button.text.setColor(selected ? '#ffffff' : '#d3f4ee');
-        });
+    private setDifficultyFromPointer(pointerX: number): void {
+        const left = SETTINGS_SLIDER_X - DIFFICULTY_SLIDER_WIDTH / 2;
+        const ratio = clamp((pointerX - left) / DIFFICULTY_SLIDER_WIDTH, 0, 1);
+        const index = Math.round(ratio * (DIFFICULTY_SETTING_LIST.length - 1));
+        this.selectDifficulty(DIFFICULTY_SETTING_LIST[index].key);
+    }
 
-        this.settingsNoteText.setText(`${this.difficultySetting.label}: ${this.difficultySetting.detail}\nChanging difficulty restarts wave 1.`);
+    private updateDifficultySlider(): void {
+        const index = DIFFICULTY_SETTING_LIST.findIndex((setting) => setting.key === this.difficultyKey);
+        const ratio = DIFFICULTY_SETTING_LIST.length === 1 ? 0 : Math.max(0, index) / (DIFFICULTY_SETTING_LIST.length - 1);
+        const left = SETTINGS_SLIDER_X - DIFFICULTY_SLIDER_WIDTH / 2;
+        this.difficultySliderFill.width = Math.max(1, DIFFICULTY_SLIDER_WIDTH * ratio);
+        this.difficultySliderFill.setFillStyle(this.difficultySetting.color, 0.88);
+        this.difficultySliderKnob.setPosition(left + DIFFICULTY_SLIDER_WIDTH * ratio, DIFFICULTY_SLIDER_Y);
+        this.difficultySliderKnob.setFillStyle(this.difficultySetting.color, 1);
+        this.difficultySliderLabel.setText(this.difficultySetting.label);
+    }
+
+    private setWaveSizeFromPointer(pointerX: number): void {
+        const left = SETTINGS_SLIDER_X - WAVE_SIZE_SLIDER_WIDTH / 2;
+        const ratio = clamp((pointerX - left) / WAVE_SIZE_SLIDER_WIDTH, 0, 1);
+        const value = MIN_WAVE_SIZE_MULTIPLIER + ratio * (MAX_WAVE_SIZE_MULTIPLIER - MIN_WAVE_SIZE_MULTIPLIER);
+        this.setWaveSizeMultiplier(Math.round(value * 4) / 4);
+    }
+
+    private setWaveSizeMultiplier(value: number): void {
+        const nextValue = clamp(value, MIN_WAVE_SIZE_MULTIPLIER, MAX_WAVE_SIZE_MULTIPLIER);
+        if (Math.abs(nextValue - this.waveSizeMultiplier) < 0.001) {
+            return;
+        }
+
+        const spawnedSoFar = Math.max(0, this.currentWaveTotal - this.spawnRemaining);
+        this.waveSizeMultiplier = nextValue;
+        window.localStorage.setItem(WAVE_SIZE_STORAGE_KEY, String(this.waveSizeMultiplier));
+        this.currentWaveTotal = this.enemyCountForWave(this.wave);
+        this.spawnRemaining = Math.max(0, this.currentWaveTotal - spawnedSoFar);
+        this.updateWaveSizeSlider();
+        this.setPromptStatus(`Monsters per wave set to ${this.waveSizeMultiplier.toFixed(2)}x.`);
+    }
+
+    private updateWaveSizeSlider(): void {
+        const ratio = (this.waveSizeMultiplier - MIN_WAVE_SIZE_MULTIPLIER) / (MAX_WAVE_SIZE_MULTIPLIER - MIN_WAVE_SIZE_MULTIPLIER);
+        const left = SETTINGS_SLIDER_X - WAVE_SIZE_SLIDER_WIDTH / 2;
+        this.waveSizeSliderFill.width = Math.max(1, WAVE_SIZE_SLIDER_WIDTH * ratio);
+        this.waveSizeSliderKnob.setPosition(left + WAVE_SIZE_SLIDER_WIDTH * ratio, WAVE_SIZE_SLIDER_Y);
+        this.waveSizeSliderLabel.setText(`${this.waveSizeMultiplier.toFixed(2)}x`);
     }
 
     private setMonsterHealthFromPointer(pointerX: number): void {
-        const left = SIDE_X + 78 - HEALTH_SLIDER_WIDTH / 2;
+        const left = SETTINGS_SLIDER_X - HEALTH_SLIDER_WIDTH / 2;
         const ratio = clamp((pointerX - left) / HEALTH_SLIDER_WIDTH, 0, 1);
         const value = MIN_HEALTH_MULTIPLIER + ratio * (MAX_HEALTH_MULTIPLIER - MIN_HEALTH_MULTIPLIER);
         this.monsterHealthMultiplier = Math.round(value * 20) / 20;
@@ -498,20 +618,20 @@ export class GameScene extends Phaser.Scene {
         this.setPromptStatus(`Monster health set to ${this.monsterHealthMultiplier.toFixed(2)}x. New monsters will use this health.`);
     }
 
-    private isPointerNearHealthSlider(pointerX: number, pointerY: number): boolean {
-        const left = SIDE_X + 78 - HEALTH_SLIDER_WIDTH / 2 - 18;
-        const right = SIDE_X + 78 + HEALTH_SLIDER_WIDTH / 2 + 18;
-        const top = GRID_Y + 430;
-        const bottom = GRID_Y + 482;
+    private isPointerNearSettingsSlider(pointerX: number, pointerY: number, sliderY: number, sliderWidth: number): boolean {
+        const left = SETTINGS_SLIDER_X - sliderWidth / 2 - 18;
+        const right = SETTINGS_SLIDER_X + sliderWidth / 2 + 18;
+        const top = sliderY - 24;
+        const bottom = sliderY + 28;
         return pointerX >= left && pointerX <= right && pointerY >= top && pointerY <= bottom;
     }
 
     private updateHealthSlider(): void {
         const ratio = (this.monsterHealthMultiplier - MIN_HEALTH_MULTIPLIER) / (MAX_HEALTH_MULTIPLIER - MIN_HEALTH_MULTIPLIER);
-        const left = SIDE_X + 78 - HEALTH_SLIDER_WIDTH / 2;
+        const left = SETTINGS_SLIDER_X - HEALTH_SLIDER_WIDTH / 2;
         this.healthSliderFill.width = Math.max(1, HEALTH_SLIDER_WIDTH * ratio);
-        this.healthSliderKnob.setPosition(left + HEALTH_SLIDER_WIDTH * ratio, GRID_Y + 454);
-        this.healthSliderLabel.setText(`${this.monsterHealthMultiplier.toFixed(2)}x health`);
+        this.healthSliderKnob.setPosition(left + HEALTH_SLIDER_WIDTH * ratio, HEALTH_SLIDER_Y);
+        this.healthSliderLabel.setText(`${this.monsterHealthMultiplier.toFixed(2)}x`);
     }
 
     private createPromptPanel(): void {
@@ -521,7 +641,7 @@ export class GameScene extends Phaser.Scene {
         panel.lineStyle(1, 0x86e5d8, 0.36);
         panel.strokeRoundedRect(24, PANEL_Y, SCREEN_WIDTH - 48, 145, 12);
 
-        this.promptText = this.add.text(42, PANEL_Y + 24, 'Click a colored square to reveal its clue.', {
+        this.promptText = this.add.text(42, PANEL_Y + 24, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '34px',
             color: '#effffb',
@@ -560,9 +680,10 @@ export class GameScene extends Phaser.Scene {
 
         this.promptStatusText = this.add.text(42, PANEL_Y + 122, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '13px',
+            fontSize: '14px',
             color: '#b9c9ca',
             wordWrap: { width: 880 },
+            lineSpacing: 4,
         });
     }
 
@@ -761,8 +882,7 @@ export class GameScene extends Phaser.Scene {
     private clearChallenge(message: string): void {
         this.currentPrompt = undefined;
         this.hideAnswerOptions();
-        this.promptText.setText(message);
-        this.setPromptStatus('Choose a colored build pad to place a tower, or choose a built tower to try its next upgrade.');
+        this.showIdlePrompt(message);
     }
 
     private hideAnswerOptions(): void {
@@ -985,7 +1105,8 @@ export class GameScene extends Phaser.Scene {
     private updateSpawning(time: number): void {
         if (this.spawnRemaining <= 0 && this.enemies.length === 0) {
             this.wave += 1;
-            this.spawnRemaining = 8 + this.wave * 3;
+            this.currentWaveTotal = this.enemyCountForWave(this.wave);
+            this.spawnRemaining = this.currentWaveTotal;
             this.spawnDelay = this.spawnDelayForWave(this.wave);
             this.nextSpawnAt = time + 2600;
             this.setPromptStatus(`Wave ${this.wave} is getting ready. You have a short breather for building and upgrades.`);
@@ -993,9 +1114,13 @@ export class GameScene extends Phaser.Scene {
         }
 
         if (this.spawnRemaining > 0 && time >= this.nextSpawnAt) {
-            this.spawnEnemy();
-            this.spawnRemaining -= 1;
-            this.nextSpawnAt = time + this.spawnDelay;
+            const spawned = this.spawnEnemy();
+            if (spawned) {
+                this.spawnRemaining -= 1;
+                this.nextSpawnAt = time + this.spawnDelay;
+            } else {
+                this.nextSpawnAt = time + 90;
+            }
         }
     }
 
@@ -1006,11 +1131,16 @@ export class GameScene extends Phaser.Scene {
         );
     }
 
+    private enemyCountForWave(wave: number): number {
+        const baseCount = wave === 1 ? 9 : 8 + wave * 3;
+        return Math.max(1, Math.round(baseCount * this.waveSizeMultiplier));
+    }
+
     private enemySpeedMultiplierForWave(wave: number): number {
         return this.difficultySetting.levelOneSpeedMultiplier + Math.max(0, wave - 1) * this.difficultySetting.waveSpeedGrowth;
     }
 
-    private spawnEnemy(): void {
+    private spawnEnemy(): boolean {
         const point = this.pathPoints[0];
         const waveBoost = Math.max(0, this.wave - 1);
         const variantRoll = Phaser.Math.Between(1, 10);
@@ -1020,6 +1150,10 @@ export class GameScene extends Phaser.Scene {
         const radius = brute ? 15 : runner ? 10 : 12;
         const speed = (runner ? 76 : brute ? 40 : 56) * this.enemySpeedMultiplierForWave(this.wave);
         const color = runner ? 0xffef73 : brute ? 0xff6f61 : 0xff9bb2;
+
+        if (!this.isSpawnPointClear(radius)) {
+            return false;
+        }
 
         const body = this.add.circle(point.x, point.y, radius, color, 1);
         body.setStrokeStyle(2, 0x071114, 0.8);
@@ -1071,6 +1205,20 @@ export class GameScene extends Phaser.Scene {
             healthFill,
         });
         this.nextEnemyId += 1;
+        return true;
+    }
+
+    private isSpawnPointClear(radius: number): boolean {
+        const spawnPoint = this.pathPoints[0];
+
+        return this.enemies.every((enemy) => {
+            if (!enemy.alive) {
+                return true;
+            }
+
+            const requiredGap = radius + enemy.radius + ENEMY_SPACING_PADDING;
+            return distance(spawnPoint, { x: enemy.body.x, y: enemy.body.y }) >= requiredGap;
+        });
     }
 
     private updateEnemies(time: number, delta: number): void {
@@ -2047,7 +2195,7 @@ export class GameScene extends Phaser.Scene {
     private endGame(): void {
         this.gameOver = true;
         this.lives = 0;
-        this.promptText.setText(`The word gate needs a reset after wave ${this.wave}. Try a new tower mix.`);
+        this.promptText.setText('');
         this.setPromptStatus('Nice try. The restart button is ready when you want another run.');
         const overlay = this.add.rectangle(GRID_X + GRID_WIDTH / 2, GRID_Y + GRID_HEIGHT / 2, GRID_WIDTH, GRID_HEIGHT, 0x081114, 0.55);
         overlay.setDepth(50);
@@ -2072,9 +2220,9 @@ export class GameScene extends Phaser.Scene {
     private updateHud(): void {
         const nextWaveSeconds = this.spawnRemaining > 0 ? Math.max(0, Math.ceil((this.nextSpawnAt - this.time.now) / 1000)) : 0;
         this.hudText.setText(`Lives ${this.lives}\nWave ${this.wave}\nTowers ${this.towers.length}`);
-        this.selectedText.setText(`Build pads ask clues.\nCorrect answers build.\nBuilt towers can level up.\nLevel cap: ${MAX_TOWER_LEVEL}`);
         this.waveText.setText(`${this.spawnRemaining} queued\n${this.enemies.length} on the path\nNext in ${nextWaveSeconds}s\n${this.projectiles.length} shots flying`);
-        this.updateSettingsButtons();
+        this.updateDifficultySlider();
+        this.updateWaveSizeSlider();
         this.updateHealthSlider();
     }
 
@@ -2306,6 +2454,12 @@ export class GameScene extends Phaser.Scene {
 
     private setPromptStatus(value: string): void {
         this.promptStatusText.setText(value);
+    }
+
+    private showIdlePrompt(message?: string): void {
+        const instructions = 'Choose a colored build pad to place a tower, or choose a built tower to try its next upgrade.';
+        this.promptText.setText('');
+        this.setPromptStatus(message ? `${message}\n${instructions}` : instructions);
     }
 
     private cellCenter(col: number, row: number): Point {
