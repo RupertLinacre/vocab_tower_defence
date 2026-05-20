@@ -26,7 +26,6 @@ type TowerDefinition = {
     kind: TowerKind;
     name: string;
     difficulty: Difficulty;
-    cost: number;
     range: number;
     cooldown: number;
     damage: number;
@@ -48,6 +47,8 @@ type Tower = {
     kind: TowerKind;
     difficulty: Difficulty;
     word: WordEntry;
+    clueKind: ClueKind;
+    answeredWords: string[];
     col: number;
     row: number;
     x: number;
@@ -60,6 +61,7 @@ type Tower = {
     label: Phaser.GameObjects.Text;
     levelLabel: Phaser.GameObjects.Text;
     jamLabel: Phaser.GameObjects.Text;
+    stars: Phaser.GameObjects.Graphics[];
 };
 
 type Enemy = {
@@ -119,21 +121,24 @@ type BuildSlot = {
     col: number;
     row: number;
     word: WordEntry;
+    towerKind: TowerKind;
+    clueKind: ClueKind;
 };
 
-const SCREEN_WIDTH = 1280;
-const SCREEN_HEIGHT = 820;
-const CELL_SIZE = 56;
+const SCREEN_WIDTH = 1600;
+const SCREEN_HEIGHT = 1025;
+const CELL_SIZE = 70;
 const GRID_COLS = 18;
 const GRID_ROWS = 10;
-const GRID_X = 36;
-const GRID_Y = 58;
+const GRID_X = 45;
+const GRID_Y = 72;
 const GRID_WIDTH = GRID_COLS * CELL_SIZE;
 const GRID_HEIGHT = GRID_ROWS * CELL_SIZE;
 const PATH_WIDTH = CELL_SIZE * 2.35;
 const PLAY_BOTTOM = GRID_Y + GRID_HEIGHT;
 const SIDE_X = GRID_X + GRID_WIDTH + 24;
-const PANEL_Y = 650;
+const PANEL_Y = 812;
+const MAX_TOWER_LEVEL = 4;
 
 const VOCAB: WordEntry[] = [
     {
@@ -287,7 +292,6 @@ const TOWER_DEFS: Record<TowerKind, TowerDefinition> = {
         kind: 'dart',
         name: 'Dart',
         difficulty: 'easy',
-        cost: 30,
         range: 178,
         cooldown: 430,
         damage: 15,
@@ -299,7 +303,6 @@ const TOWER_DEFS: Record<TowerKind, TowerDefinition> = {
         kind: 'cannon',
         name: 'Cannon',
         difficulty: 'easy',
-        cost: 45,
         range: 158,
         cooldown: 1120,
         damage: 25,
@@ -311,7 +314,6 @@ const TOWER_DEFS: Record<TowerKind, TowerDefinition> = {
         kind: 'missile',
         name: 'Missile',
         difficulty: 'medium',
-        cost: 65,
         range: 210,
         cooldown: 980,
         damage: 26,
@@ -323,7 +325,6 @@ const TOWER_DEFS: Record<TowerKind, TowerDefinition> = {
         kind: 'laser',
         name: 'Laser',
         difficulty: 'medium',
-        cost: 70,
         range: 225,
         cooldown: 720,
         damage: 18,
@@ -335,7 +336,6 @@ const TOWER_DEFS: Record<TowerKind, TowerDefinition> = {
         kind: 'ricochet',
         name: 'Ricochet',
         difficulty: 'hard',
-        cost: 85,
         range: 230,
         cooldown: 1120,
         damage: 20,
@@ -345,7 +345,11 @@ const TOWER_DEFS: Record<TowerKind, TowerDefinition> = {
     },
 };
 
-const TOWER_ORDER: TowerKind[] = ['dart', 'cannon', 'missile', 'laser', 'ricochet'];
+const TOWER_KINDS_BY_DIFFICULTY: Record<Difficulty, TowerKind[]> = {
+    easy: ['dart', 'cannon'],
+    medium: ['missile', 'laser'],
+    hard: ['ricochet'],
+};
 
 function distance(a: Point, b: Point): number {
     return Math.hypot(a.x - b.x, a.y - b.y);
@@ -365,12 +369,12 @@ function formatDifficulty(difficulty: Difficulty): string {
 
 function difficultyColor(difficulty: Difficulty): number {
     if (difficulty === 'easy') {
-        return 0x5cc8ff;
+        return 0x53c67a;
     }
     if (difficulty === 'medium') {
-        return 0x8dd15f;
+        return 0xf0a33a;
     }
-    return 0xc46bff;
+    return 0xe35b5b;
 }
 
 function shuffle<T>(items: T[]): T[] {
@@ -380,6 +384,42 @@ function shuffle<T>(items: T[]): T[] {
         [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
     }
     return result;
+}
+
+function difficultyEmoji(difficulty: Difficulty): string {
+    if (difficulty === 'easy') {
+        return '🟢';
+    }
+    if (difficulty === 'medium') {
+        return '🟠';
+    }
+    return '🔴';
+}
+
+function clueLabel(clueKind: ClueKind): string {
+    if (clueKind === 'definition') {
+        return '📖 definition';
+    }
+    if (clueKind === 'synonym') {
+        return '🔁 synonym';
+    }
+    return '🔄 antonym';
+}
+
+function towerIcon(kind: TowerKind): string {
+    if (kind === 'dart') {
+        return '🎯';
+    }
+    if (kind === 'cannon') {
+        return '💣';
+    }
+    if (kind === 'missile') {
+        return '🚀';
+    }
+    if (kind === 'laser') {
+        return '🔦';
+    }
+    return '🌀';
 }
 
 function projectPointToSegment(point: Point, start: Point, end: Point): { point: Point; distance: number; t: number } {
@@ -409,11 +449,9 @@ class GameScene extends Phaser.Scene {
     private towers: Tower[] = [];
     private enemies: Enemy[] = [];
     private projectiles: Projectile[] = [];
-    private selectedTower: TowerKind = 'dart';
     private nextTowerId = 1;
     private nextEnemyId = 1;
     private nextProjectileId = 1;
-    private currency = 165;
     private lives = 20;
     private wave = 1;
     private spawnRemaining = 10;
@@ -427,8 +465,8 @@ class GameScene extends Phaser.Scene {
     private promptStatusText!: Phaser.GameObjects.Text;
     private waveText!: Phaser.GameObjects.Text;
     private hoverCell!: Phaser.GameObjects.Rectangle;
+    private hoverPopupText!: Phaser.GameObjects.Text;
     private restartButton!: Phaser.GameObjects.Rectangle;
-    private towerButtons: Array<{ kind: TowerKind; bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text }> = [];
     private optionButtons: Array<{ bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text; word?: WordEntry }> = [];
 
     constructor() {
@@ -442,16 +480,14 @@ class GameScene extends Phaser.Scene {
         this.drawArena();
         this.createHud();
         this.createPromptPanel();
-        this.createTowerButtons();
         this.createRestartButton();
 
         this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
             this.handleBoardClick(pointer.x, pointer.y, this.time.now);
         });
 
-        this.setPromptStatus('Select a tower type, click a build cell, then answer the four-word clue to deploy it. Click built towers for upgrade clues.');
+        this.setPromptStatus('Click a colored build square, answer its four-word clue, and the square deploys its preset tower. Click built towers to upgrade.');
         this.updateHud();
-        this.updateTowerButtonStates();
     }
 
     update(time: number, delta: number): void {
@@ -520,9 +556,25 @@ class GameScene extends Phaser.Scene {
                 const difficulty: Difficulty = progressRatio < 0.34 ? 'easy' : progressRatio < 0.68 ? 'medium' : 'hard';
                 const pool = pools[difficulty];
                 const wordIndex = Math.abs(Math.floor(nearest.progress / 35) + col * 7 + row * 11) % pool.length;
-                this.buildSlots.set(this.cellKey(col, row), { col, row, word: pool[wordIndex] });
+                this.buildSlots.set(this.cellKey(col, row), {
+                    col,
+                    row,
+                    word: pool[wordIndex],
+                    towerKind: this.towerKindForSlot(difficulty, col, row),
+                    clueKind: this.clueKindForSlot(col, row),
+                });
             }
         }
+    }
+
+    private towerKindForSlot(difficulty: Difficulty, col: number, row: number): TowerKind {
+        const kinds = TOWER_KINDS_BY_DIFFICULTY[difficulty];
+        return kinds[Math.abs(col * 5 + row * 3) % kinds.length];
+    }
+
+    private clueKindForSlot(col: number, row: number): ClueKind {
+        const clueKinds: ClueKind[] = ['definition', 'synonym', 'antonym'];
+        return clueKinds[Math.abs(col * 2 + row * 5) % clueKinds.length];
     }
 
     private drawArena(): void {
@@ -551,9 +603,11 @@ class GameScene extends Phaser.Scene {
                     grid.fillRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
                     const slot = this.buildSlots.get(this.cellKey(col, row));
                     if (slot) {
-                        grid.fillStyle(difficultyColor(slot.word.difficulty), 0.24);
+                        grid.fillStyle(difficultyColor(slot.word.difficulty), 0.12);
+                        grid.fillRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
+                        grid.fillStyle(difficultyColor(slot.word.difficulty), 0.3);
                         grid.fillCircle(x + CELL_SIZE - 10, y + 10, 4);
-                        grid.lineStyle(1, difficultyColor(slot.word.difficulty), 0.3);
+                        grid.lineStyle(1, difficultyColor(slot.word.difficulty), 0.34);
                         grid.strokeCircle(x + CELL_SIZE - 10, y + 10, 7);
                     }
                 }
@@ -581,6 +635,17 @@ class GameScene extends Phaser.Scene {
         this.hoverCell.setStrokeStyle(2, 0xffffff, 0.35);
         this.hoverCell.setVisible(false);
         this.hoverCell.setDepth(20);
+
+        this.hoverPopupText = this.add.text(0, 0, '', {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '14px',
+            color: '#effffb',
+            backgroundColor: 'rgba(7, 17, 20, 0.9)',
+            padding: { left: 8, right: 8, top: 5, bottom: 5 },
+            lineSpacing: 4,
+        });
+        this.hoverPopupText.setDepth(40);
+        this.hoverPopupText.setVisible(false);
     }
 
     private strokePath(graphics: Phaser.GameObjects.Graphics): void {
@@ -599,7 +664,7 @@ class GameScene extends Phaser.Scene {
         side.lineStyle(1, 0x7ccac1, 0.28);
         side.strokeRoundedRect(SIDE_X - 10, GRID_Y - 12, 188, GRID_HEIGHT + 24, 10);
 
-        this.add.text(SIDE_X, GRID_Y, 'TOWERS', {
+        this.add.text(SIDE_X, GRID_Y, 'WORD LOCKS', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '18px',
             color: '#effffb',
@@ -613,7 +678,26 @@ class GameScene extends Phaser.Scene {
             lineSpacing: 6,
         });
 
-        this.selectedText = this.add.text(SIDE_X, GRID_Y + 96, '', {
+        const legend = this.add.graphics();
+        const legendItems: Array<{ difficulty: Difficulty; label: string }> = [
+            { difficulty: 'easy', label: 'Easy: dart or cannon' },
+            { difficulty: 'medium', label: 'Medium: missile or laser' },
+            { difficulty: 'hard', label: 'Hard: ricochet' },
+        ];
+        legendItems.forEach((item, index) => {
+            const y = GRID_Y + 104 + index * 26;
+            legend.fillStyle(difficultyColor(item.difficulty), 0.22);
+            legend.fillRoundedRect(SIDE_X, y, 15, 15, 3);
+            legend.lineStyle(1, difficultyColor(item.difficulty), 0.7);
+            legend.strokeRoundedRect(SIDE_X, y, 15, 15, 3);
+            this.add.text(SIDE_X + 22, y - 1, item.label, {
+                fontFamily: 'Arial, Helvetica, sans-serif',
+                fontSize: '12px',
+                color: '#d3f4ee',
+            });
+        });
+
+        this.selectedText = this.add.text(SIDE_X, GRID_Y + 198, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '13px',
             color: '#9fe9dc',
@@ -630,34 +714,6 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    private createTowerButtons(): void {
-        this.towerButtons = [];
-        TOWER_ORDER.forEach((kind, index) => {
-            const def = TOWER_DEFS[kind];
-            const x = SIDE_X + 78;
-            const y = GRID_Y + 150 + index * 70;
-            const bg = this.add.rectangle(x, y, 160, 55, 0x12343a, 1);
-            bg.setStrokeStyle(2, def.color, 0.5);
-            bg.setInteractive({ useHandCursor: true });
-            const text = this.add.text(x - 70, y - 21, `${def.name}  $${def.cost}\n${formatDifficulty(def.difficulty)} • ${def.description}`, {
-                fontFamily: 'Arial, Helvetica, sans-serif',
-                fontSize: '13px',
-                color: '#effffb',
-                lineSpacing: 5,
-            });
-            text.setInteractive({ useHandCursor: true });
-
-            const select = () => {
-                this.selectedTower = kind;
-                this.setPromptStatus(`${def.name} selected.`);
-                this.updateTowerButtonStates();
-            };
-            bg.on('pointerdown', select);
-            text.on('pointerdown', select);
-            this.towerButtons.push({ kind, bg, text });
-        });
-    }
-
     private createPromptPanel(): void {
         const panel = this.add.graphics();
         panel.fillStyle(0x0d1c22, 0.98);
@@ -665,32 +721,25 @@ class GameScene extends Phaser.Scene {
         panel.lineStyle(1, 0x86e5d8, 0.36);
         panel.strokeRoundedRect(24, PANEL_Y, SCREEN_WIDTH - 48, 145, 12);
 
-        this.add.text(42, PANEL_Y + 18, 'VOCAB PROMPT', {
+        this.promptText = this.add.text(42, PANEL_Y + 24, 'Click a colored square to reveal its clue.', {
             fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '13px',
-            color: '#86e5d8',
-            fontStyle: 'bold',
-        });
-
-        this.promptText = this.add.text(42, PANEL_Y + 40, 'Select a tower type, then click a marked build cell to unlock it with a word clue.', {
-            fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: '18px',
+            fontSize: '34px',
             color: '#effffb',
-            wordWrap: { width: 890 },
-            lineSpacing: 5,
+            wordWrap: { width: 1040 },
+            lineSpacing: 8,
         });
 
         this.optionButtons = [];
         for (let index = 0; index < 4; index += 1) {
-            const x = 42 + index * 204 + 95;
-            const y = PANEL_Y + 96;
-            const bg = this.add.rectangle(x, y, 190, 32, 0x183238, 1);
+            const x = 42 + index * 260 + 120;
+            const y = PANEL_Y + 100;
+            const bg = this.add.rectangle(x, y, 235, 38, 0x183238, 1);
             bg.setStrokeStyle(1, 0x86e5d8, 0.42);
             bg.setInteractive({ useHandCursor: true });
             bg.setVisible(false);
             const text = this.add.text(x, y, '', {
                 fontFamily: 'Arial, Helvetica, sans-serif',
-                fontSize: '14px',
+                fontSize: '17px',
                 color: '#effffb',
                 fontStyle: 'bold',
             });
@@ -771,30 +820,17 @@ class GameScene extends Phaser.Scene {
             return;
         }
 
-        const towerKind = this.towerKindForWord(slot.word);
-        const def = TOWER_DEFS[towerKind];
-        if (this.currency < def.cost) {
-            this.flashCell(col, row, 0xffc857);
-            this.setPromptStatus(`Need $${def.cost} for a ${def.name}. Enemies drop more currency.`);
-            return;
-        }
-
+        const towerKind = slot.towerKind;
         this.currentPrompt = this.createChallenge({
             mode: 'build',
             word: slot.word,
+            clueKind: slot.clueKind,
             col,
             row,
             towerKind,
         });
         this.flashCell(col, row, difficultyColor(slot.word.difficulty));
         this.renderChallenge();
-    }
-
-    private towerKindForWord(word: WordEntry): TowerKind {
-        if (TOWER_DEFS[this.selectedTower].difficulty === word.difficulty) {
-            return this.selectedTower;
-        }
-        return TOWER_ORDER.find((kind) => TOWER_DEFS[kind].difficulty === word.difficulty) ?? this.selectedTower;
     }
 
     private startUpgradeChallenge(tower: Tower, time: number): void {
@@ -804,21 +840,27 @@ class GameScene extends Phaser.Scene {
             return;
         }
 
+        if (tower.level >= MAX_TOWER_LEVEL) {
+            this.setPromptStatus(`${tower.word.word} is already at level ${MAX_TOWER_LEVEL}.`);
+            this.pulseTower(tower, 0xffe38a, 0.22);
+            this.floatingText(tower.x, tower.y - 42, 'MAX LEVEL', '#ffe38a');
+            return;
+        }
+
         this.currentPrompt = this.createChallenge({
             mode: 'upgrade',
             word: tower.word,
+            clueKind: tower.clueKind,
             tower,
         });
         this.pulseTower(tower, difficultyColor(tower.word.difficulty), 0.22);
         this.renderChallenge();
     }
 
-    private createChallenge(challenge: Omit<Prompt, 'clueKind' | 'clue' | 'options'>): Prompt {
-        const clueKind = choose<ClueKind>(['definition', 'synonym', 'antonym']);
+    private createChallenge(challenge: Omit<Prompt, 'clue' | 'options'>): Prompt {
         return {
             ...challenge,
-            clueKind,
-            clue: this.makeClue(challenge.word, clueKind),
+            clue: this.makeClue(challenge.word, challenge.clueKind),
             options: this.makeAnswerOptions(challenge.word),
         };
     }
@@ -837,13 +879,13 @@ class GameScene extends Phaser.Scene {
 
         const challenge = this.currentPrompt;
         if (challenge.mode === 'build') {
-            const def = TOWER_DEFS[challenge.towerKind ?? this.selectedTower];
-            this.promptText.setText(`Unlock ${def.name} tower at this cell. ${challenge.clue}`);
-            const tierNote = challenge.towerKind !== this.selectedTower ? ` This ${challenge.word.difficulty} word lock maps to ${def.name}.` : '';
-            this.setPromptStatus(`Choose the matching word. Correct answer deploys the tower for $${def.cost}; wrong answer deploys nothing.${tierNote}`);
+            const def = TOWER_DEFS[challenge.towerKind ?? 'dart'];
+            this.promptText.setText(challenge.clue);
+            this.setPromptStatus(`${towerIcon(def.kind)} ${def.name} • choose the matching word to place it.`);
         } else {
-            this.promptText.setText(`Upgrade the ${challenge.word.word} tower. ${challenge.clue}`);
-            this.setPromptStatus('Choose the matching word to upgrade. A wrong answer jams this tower briefly.');
+            const def = challenge.tower ? TOWER_DEFS[challenge.tower.kind] : undefined;
+            this.promptText.setText(challenge.clue);
+            this.setPromptStatus(`${def ? `${towerIcon(def.kind)} ${def.name} • ` : ''}choose the matching word to upgrade. Wrong answer jams it briefly.`);
         }
 
         this.optionButtons.forEach((button, index) => {
@@ -881,15 +923,17 @@ class GameScene extends Phaser.Scene {
                 return;
             }
 
-            this.placeTower(challenge.col, challenge.row, challenge.towerKind, challenge.word);
-            this.clearChallenge(`Correct: ${challenge.word.word}. Tower deployed; click built towers for upgrade clues.`);
+            const tower = this.placeTower(challenge.col, challenge.row, challenge.towerKind, challenge.word, challenge.clueKind);
+            this.clearChallenge(`Correct: ${challenge.word.word}. ${TOWER_DEFS[challenge.towerKind].name} deployed with a new word.`);
+            if (tower) {
+                this.pulseTower(tower, TOWER_DEFS[tower.kind].accent, 0.18);
+            }
             return;
         }
 
         if (challenge.tower) {
-            this.upgradeTower(challenge.tower);
-            this.currency += 14 + challenge.tower.level * 4;
-            this.clearChallenge(`Correct: ${challenge.word.word} upgraded to level ${challenge.tower.level}.`);
+            this.upgradeTower(challenge.tower, challenge.word);
+            this.clearChallenge(`Correct: ${challenge.word.word}. Upgraded to level ${challenge.tower.level}; new word loaded.`);
         }
     }
 
@@ -915,7 +959,7 @@ class GameScene extends Phaser.Scene {
         this.currentPrompt = undefined;
         this.hideAnswerOptions();
         this.promptText.setText(message);
-        this.setPromptStatus('Select a tower type, click a marked build cell to earn placement, or click a tower to attempt an upgrade.');
+        this.setPromptStatus('Click a colored build square to earn placement, or click a built tower to attempt its next upgrade.');
     }
 
     private hideAnswerOptions(): void {
@@ -926,13 +970,9 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    private placeTower(col: number, row: number, kind: TowerKind, word: WordEntry): void {
+    private placeTower(col: number, row: number, kind: TowerKind, answeredWord: WordEntry, clueKind: ClueKind): Tower | undefined {
         const def = TOWER_DEFS[kind];
-        if (this.currency < def.cost) {
-            this.flashCell(col, row, 0xffc857);
-            this.setPromptStatus(`Need $${def.cost} for a ${def.name}. Enemies drop more currency.`);
-            return;
-        }
+        const word = this.nextTowerWord(def.difficulty, [answeredWord.word]);
 
         const center = this.cellCenter(col, row);
         const base = this.add.circle(center.x, center.y, 20, def.color, 0.88);
@@ -977,6 +1017,8 @@ class GameScene extends Phaser.Scene {
             kind: def.kind,
             difficulty: def.difficulty,
             word,
+            clueKind,
+            answeredWords: [answeredWord.word, word.word],
             col,
             row,
             x: center.x,
@@ -989,30 +1031,95 @@ class GameScene extends Phaser.Scene {
             label,
             levelLabel,
             jamLabel,
+            stars: [],
         };
         this.nextTowerId += 1;
         this.towers.push(tower);
-        this.currency -= def.cost;
         this.pulseTower(tower, def.accent);
-        this.setPromptStatus(`${def.name} tower built with word "${word.word}".`);
+        this.updateTowerStars(tower);
+        this.setPromptStatus(`${def.name} tower built. Next word: "${word.word}".`);
         this.updateHud();
+        return tower;
     }
 
-    private upgradeTower(tower: Tower): void {
+    private upgradeTower(tower: Tower, answeredWord: WordEntry): void {
+        if (tower.level >= MAX_TOWER_LEVEL) {
+            this.setPromptStatus(`${tower.word.word} is already at level ${MAX_TOWER_LEVEL}.`);
+            this.pulseTower(tower, 0xffe38a, 0.22);
+            return;
+        }
+
         tower.level += 1;
         tower.levelLabel.setText(String(tower.level));
         tower.nextFireAt = Math.min(tower.nextFireAt, this.time.now + 150);
+        this.advanceTowerWord(tower, answeredWord);
+        this.updateTowerStars(tower);
         this.correctAnswerEffect(tower);
+    }
+
+    private advanceTowerWord(tower: Tower, answeredWord: WordEntry): void {
+        if (!tower.answeredWords.includes(answeredWord.word)) {
+            tower.answeredWords.push(answeredWord.word);
+        }
+        const nextWord = this.nextTowerWord(tower.difficulty, tower.answeredWords);
+        tower.word = nextWord;
+        tower.answeredWords.push(nextWord.word);
+        tower.label.setText(nextWord.word);
+        tower.label.setFontSize(nextWord.word.length > 8 ? 10 : 12);
+    }
+
+    private nextTowerWord(difficulty: Difficulty, avoidWords: string[]): WordEntry {
+        const pool = VOCAB.filter((entry) => entry.difficulty === difficulty);
+        const unused = shuffle(pool.filter((entry) => !avoidWords.includes(entry.word)));
+        if (unused.length > 0) {
+            return unused[0];
+        }
+        const current = avoidWords[avoidWords.length - 1];
+        return shuffle(pool.filter((entry) => entry.word !== current))[0] ?? pool[0];
+    }
+
+    private updateTowerStars(tower: Tower): void {
+        tower.stars.forEach((star) => star.destroy());
+        tower.stars = [];
+
+        for (let index = 0; index < tower.level; index += 1) {
+            const star = this.add.graphics();
+            const x = tower.x - 15 + index * 10;
+            const y = tower.y - 30;
+            star.fillStyle(0xffe38a, 0.95);
+            star.lineStyle(1, 0x6b4a00, 0.9);
+            this.drawMiniStar(star, x, y, 4.2, 2.1);
+            star.setDepth(14);
+            tower.stars.push(star);
+        }
+    }
+
+    private drawMiniStar(graphics: Phaser.GameObjects.Graphics, x: number, y: number, outerRadius: number, innerRadius: number): void {
+        graphics.beginPath();
+        for (let point = 0; point < 10; point += 1) {
+            const angle = -Math.PI / 2 + point * (Math.PI / 5);
+            const radius = point % 2 === 0 ? outerRadius : innerRadius;
+            const px = x + Math.cos(angle) * radius;
+            const py = y + Math.sin(angle) * radius;
+            if (point === 0) {
+                graphics.moveTo(px, py);
+            } else {
+                graphics.lineTo(px, py);
+            }
+        }
+        graphics.closePath();
+        graphics.fillPath();
+        graphics.strokePath();
     }
 
     private makeClue(word: WordEntry, clueKind: ClueKind): string {
         if (clueKind === 'definition') {
-            return `Definition: ${word.definition}`;
+            return word.shortDefinition;
         }
         if (clueKind === 'synonym') {
-            return `Synonym clue: closest in meaning to "${choose(word.synonyms)}".`;
+            return `Similar to "${choose(word.synonyms)}"`;
         }
-        return `Antonym clue: opposite of "${choose(word.antonyms)}".`;
+        return `Opposite of "${choose(word.antonyms)}"`;
     }
 
     private updateSpawning(time: number): void {
@@ -1529,7 +1636,6 @@ class GameScene extends Phaser.Scene {
 
     private killEnemy(enemy: Enemy, color: number): void {
         enemy.alive = false;
-        this.currency += 10 + Math.floor(this.wave * 1.5);
         this.spark(enemy.body.x, enemy.body.y, color, 18);
         this.removeEnemy(enemy);
     }
@@ -1581,19 +1687,9 @@ class GameScene extends Phaser.Scene {
     }
 
     private updateHud(): void {
-        this.hudText.setText(`$${this.currency}\nLives ${this.lives}\nWave ${this.wave}`);
-        const def = TOWER_DEFS[this.selectedTower];
-        this.selectedText.setText(`Selected: ${def.name}\n${formatDifficulty(def.difficulty)} tower\nCell word tier can remap placement\n${def.description}`);
+        this.hudText.setText(`Lives ${this.lives}\nWave ${this.wave}\nTowers ${this.towers.length}`);
+        this.selectedText.setText(`Click a colored square\nto answer and place.\nClick an existing tower\nto answer and upgrade.\nLevel cap: ${MAX_TOWER_LEVEL}`);
         this.waveText.setText(`${this.spawnRemaining} enemies queued\n${this.enemies.length} enemies active\n${this.projectiles.length} projectiles live`);
-    }
-
-    private updateTowerButtonStates(): void {
-        for (const button of this.towerButtons) {
-            const def = TOWER_DEFS[button.kind];
-            const selected = button.kind === this.selectedTower;
-            button.bg.setFillStyle(selected ? 0x214f55 : 0x12343a, 1);
-            button.bg.setStrokeStyle(selected ? 3 : 2, selected ? 0xffffff : def.color, selected ? 0.9 : 0.5);
-        }
     }
 
     private updateHoverCell(): void {
@@ -1602,17 +1698,44 @@ class GameScene extends Phaser.Scene {
         const y = pointer.y;
         if (x < GRID_X || x > GRID_X + GRID_WIDTH || y < GRID_Y || y > GRID_Y + GRID_HEIGHT) {
             this.hoverCell.setVisible(false);
+            this.hoverPopupText.setVisible(false);
             return;
         }
         const col = Math.floor((x - GRID_X) / CELL_SIZE);
         const row = Math.floor((y - GRID_Y) / CELL_SIZE);
         const center = this.cellCenter(col, row);
-        const occupied = this.towers.some((tower) => tower.col === col && tower.row === row);
-        const buildable = this.isBuildableCell(col, row) && !occupied;
+        const tower = this.towers.find((candidate) => candidate.col === col && candidate.row === row);
+        const buildable = this.isBuildableCell(col, row) && !tower;
+        const slot = this.buildSlots.get(this.cellKey(col, row));
+        const hoverColor = buildable && slot ? difficultyColor(slot.word.difficulty) : tower ? 0xffe38a : 0xff5c6c;
         this.hoverCell.setPosition(center.x, center.y);
         this.hoverCell.setVisible(true);
-        this.hoverCell.setFillStyle(buildable ? 0x9fe9dc : occupied ? 0xffffff : 0xff5c6c, buildable ? 0.13 : 0.1);
-        this.hoverCell.setStrokeStyle(2, buildable ? 0x9fe9dc : occupied ? 0xffffff : 0xff5c6c, 0.5);
+        this.hoverCell.setFillStyle(hoverColor, buildable ? 0.14 : 0.1);
+        this.hoverCell.setStrokeStyle(2, hoverColor, 0.55);
+
+        if (tower) {
+            this.showHoverPopup(x, y, this.hoverTextForTower(tower));
+        } else if (buildable && slot) {
+            this.showHoverPopup(x, y, this.hoverTextForSlot(slot));
+        } else {
+            this.hoverPopupText.setVisible(false);
+        }
+    }
+
+    private hoverTextForSlot(slot: BuildSlot): string {
+        const def = TOWER_DEFS[slot.towerKind];
+        return `${towerIcon(def.kind)} ${def.name}\n${difficultyEmoji(slot.word.difficulty)} ${formatDifficulty(slot.word.difficulty)} • ${clueLabel(slot.clueKind)}`;
+    }
+
+    private hoverTextForTower(tower: Tower): string {
+        const def = TOWER_DEFS[tower.kind];
+        return `${towerIcon(def.kind)} ${def.name} L${tower.level}\n${difficultyEmoji(tower.word.difficulty)} ${formatDifficulty(tower.word.difficulty)} • ${clueLabel(tower.clueKind)}`;
+    }
+
+    private showHoverPopup(pointerX: number, pointerY: number, text: string): void {
+        this.hoverPopupText.setText(text);
+        this.hoverPopupText.setPosition(clamp(pointerX + 16, 12, SCREEN_WIDTH - 260), clamp(pointerY + 16, 12, SCREEN_HEIGHT - 72));
+        this.hoverPopupText.setVisible(true);
     }
 
     private flashCell(col: number, row: number, color: number): void {
