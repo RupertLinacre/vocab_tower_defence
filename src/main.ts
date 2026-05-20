@@ -898,13 +898,13 @@ class GameScene extends Phaser.Scene {
 
     private startUpgradeChallenge(tower: Tower, time: number): void {
         if (tower.jamUntil > time) {
-            this.setPromptStatus(`${tower.word.word} is still jammed. Let it reboot before upgrading.`);
+            this.setPromptStatus(`${TOWER_DEFS[tower.kind].name} is still jammed. Let it reboot before upgrading.`);
             this.pulseTower(tower, 0xff5c6c, 0.2);
             return;
         }
 
         if (tower.level >= MAX_TOWER_LEVEL) {
-            this.setPromptStatus(`${tower.word.word} is already at level ${MAX_TOWER_LEVEL}.`);
+            this.setPromptStatus(`${TOWER_DEFS[tower.kind].name} is already at level ${MAX_TOWER_LEVEL}.`);
             this.pulseTower(tower, 0xffe38a, 0.22);
             this.floatingText(tower.x, tower.y - 42, 'MAX LEVEL', '#ffe38a');
             return;
@@ -1043,9 +1043,9 @@ class GameScene extends Phaser.Scene {
         base.setDepth(8);
         const cap = this.add.circle(center.x, center.y, 8, def.accent, 1);
         cap.setDepth(9);
-        const label = this.add.text(center.x, center.y + 24, word.word, {
+        const label = this.add.text(center.x, center.y + 24, towerIcon(def.kind), {
             fontFamily: 'Arial, Helvetica, sans-serif',
-            fontSize: word.word.length > 8 ? '10px' : '12px',
+            fontSize: '18px',
             color: '#effffb',
             fontStyle: 'bold',
             backgroundColor: 'rgba(7, 17, 20, 0.74)',
@@ -1100,14 +1100,14 @@ class GameScene extends Phaser.Scene {
         this.towers.push(tower);
         this.pulseTower(tower, def.accent);
         this.updateTowerStars(tower);
-        this.setPromptStatus(`${def.name} tower built. Next word: "${word.word}".`);
+        this.setPromptStatus(`${def.name} tower built. Its next upgrade word is hidden until you answer the clue.`);
         this.updateHud();
         return tower;
     }
 
     private upgradeTower(tower: Tower, answeredWord: WordEntry): void {
         if (tower.level >= MAX_TOWER_LEVEL) {
-            this.setPromptStatus(`${tower.word.word} is already at level ${MAX_TOWER_LEVEL}.`);
+            this.setPromptStatus(`${TOWER_DEFS[tower.kind].name} is already at level ${MAX_TOWER_LEVEL}.`);
             this.pulseTower(tower, 0xffe38a, 0.22);
             return;
         }
@@ -1127,8 +1127,8 @@ class GameScene extends Phaser.Scene {
         const nextWord = this.nextTowerWord(tower.difficulty, tower.answeredWords);
         tower.word = nextWord;
         tower.answeredWords.push(nextWord.word);
-        tower.label.setText(nextWord.word);
-        tower.label.setFontSize(nextWord.word.length > 8 ? 10 : 12);
+        tower.label.setText(towerIcon(tower.kind));
+        tower.label.setFontSize(18);
     }
 
     private nextTowerWord(difficulty: Difficulty, avoidWords: string[]): WordEntry {
