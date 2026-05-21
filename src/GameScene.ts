@@ -22,6 +22,7 @@ import {
 import { TOWER_DEFS, TOWER_KINDS_BY_DIFFICULTY } from './towerData';
 import {
     clamp,
+    choose,
     clueLabel,
     difficultyColor,
     difficultyEmoji,
@@ -248,11 +249,10 @@ export class GameScene extends Phaser.Scene {
                 const progressRatio = nearest.progress / this.pathTotalLength;
                 const difficulty: Difficulty = progressRatio < 0.28 ? 'easy' : progressRatio < 0.55 ? 'medium' : progressRatio < 0.82 ? 'hard' : 'veryHard';
                 const pool = pools[difficulty];
-                const wordIndex = Math.abs(Math.floor(nearest.progress / 35) + col * 7 + row * 11) % pool.length;
                 this.buildSlots.set(this.cellKey(col, row), {
                     col,
                     row,
-                    word: pool[wordIndex],
+                    word: choose(pool),
                     towerKind: this.towerKindForSlot(difficulty, col, row),
                     clueKind: this.clueKindForSlot(col, row),
                 });
