@@ -94,6 +94,10 @@ export type Enemy = {
     motion: EnemyMotion;
     alive: boolean;
     body: Phaser.GameObjects.Arc;
+    face: Phaser.GameObjects.Text;
+    happyEmoji: string;
+    sadEmoji: string;
+    sadUntil: number;
     core: Phaser.GameObjects.Arc;
     leftEye: Phaser.GameObjects.Arc;
     rightEye: Phaser.GameObjects.Arc;

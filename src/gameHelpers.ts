@@ -24,15 +24,15 @@ export function formatDifficulty(difficulty: Difficulty): string {
 
 export function difficultyColor(difficulty: Difficulty): number {
     if (difficulty === 'easy') {
-        return 0x53c67a;
+        return 0x46df7a;
     }
     if (difficulty === 'medium') {
-        return 0xf0a33a;
+        return 0xffb947;
     }
     if (difficulty === 'hard') {
-        return 0xe35b5b;
+        return 0xff658f;
     }
-    return 0xa56bff;
+    return 0x9873ff;
 }
 
 export function shuffle<T>(items: T[]): T[] {

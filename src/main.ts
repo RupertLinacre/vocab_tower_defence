@@ -8,7 +8,7 @@ const config: Phaser.Types.Core.GameConfig = {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
     parent: 'app',
-    backgroundColor: '#071114',
+    backgroundColor: '#8fe2ff',
     scene: GameScene,
     scale: {
         mode: Phaser.Scale.FIT,

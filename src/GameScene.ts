@@ -53,9 +53,27 @@ const SETTINGS_SLIDER_X = SIDE_X + 78;
 const DIFFICULTY_SLIDER_WIDTH = 160;
 const WAVE_SIZE_SLIDER_WIDTH = 160;
 const HEALTH_SLIDER_WIDTH = 160;
+const SCENE_BACKGROUND_COLOR = 0x8fe2ff;
+const ARENA_PANEL_COLOR = 0xeafff8;
+const PATH_OUTER_COLOR = 0x4abbff;
+const PATH_INNER_COLOR = 0x9be8ff;
+const SIDEBAR_COLOR = 0xfff1fa;
+const SIDEBAR_BORDER_COLOR = 0xff9fd3;
+const PROMPT_PANEL_COLOR = 0xfff7d1;
+const PROMPT_PANEL_BORDER_COLOR = 0xff99c0;
+const UI_TRACK_COLOR = 0xe8f8ff;
+const UI_TRACK_BORDER_COLOR = 0x58c7ff;
+const UI_BUTTON_COLOR = 0xffffff;
+const RESTART_BUTTON_COLOR = 0xff99c1;
+const TEXT_PRIMARY = '#123d64';
+const TEXT_SECONDARY = '#385c75';
+const TEXT_ACCENT = '#177796';
+const POPUP_BACKGROUND = 'rgba(255, 255, 255, 0.95)';
+const TOWER_LABEL_BACKGROUND = 'rgba(255, 255, 255, 0.86)';
+const ENEMY_FACE_FONT = 'Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif';
 const ENEMY_SPACING_PADDING = 3;
-const COLLISION_RESTITUTION = 0.42;
-const WALL_RESTITUTION = 0.55;
+const COLLISION_RESTITUTION = 0.52;
+const WALL_RESTITUTION = 0.64;
 
 export class GameScene extends Phaser.Scene {
     private pathPoints: Point[] = [];
@@ -110,7 +128,7 @@ export class GameScene extends Phaser.Scene {
     create(): void {
         this.loadDifficultySetting();
         this.resetRoundState();
-        this.cameras.main.setBackgroundColor('#08181b');
+        this.cameras.main.setBackgroundColor('#8fe2ff');
         this.buildPath();
         this.assignBuildSlotWords();
         this.drawArena();
@@ -264,17 +282,17 @@ export class GameScene extends Phaser.Scene {
 
     private drawArena(): void {
         const backdrop = this.add.graphics();
-        backdrop.fillStyle(0x071114, 1);
+        backdrop.fillStyle(SCENE_BACKGROUND_COLOR, 1);
         backdrop.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-        backdrop.fillStyle(0x0e2a2e, 1);
+        backdrop.fillStyle(ARENA_PANEL_COLOR, 1);
         backdrop.fillRoundedRect(GRID_X - 12, GRID_Y - 12, GRID_WIDTH + 24, GRID_HEIGHT + 24, 12);
 
         const path = this.add.graphics();
-        path.lineStyle(PATH_WIDTH + 22, 0x18373c, 1);
+        path.lineStyle(PATH_WIDTH + 22, PATH_OUTER_COLOR, 1);
         this.strokePath(path);
-        path.lineStyle(PATH_WIDTH, 0x2f4f55, 1);
+        path.lineStyle(PATH_WIDTH, PATH_INNER_COLOR, 1);
         this.strokePath(path);
-        path.lineStyle(6, 0xd3f4ee, 0.12);
+        path.lineStyle(6, 0xffffff, 0.32);
         this.strokePath(path);
 
         const grid = this.add.graphics();
@@ -284,19 +302,19 @@ export class GameScene extends Phaser.Scene {
                 const y = GRID_Y + row * CELL_SIZE;
                 const isPath = this.isPathCell(col, row);
                 if (!isPath) {
-                    grid.fillStyle(0x113034, 0.78);
+                    grid.fillStyle(0xffffff, 0.92);
                     grid.fillRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
                     const slot = this.buildSlots.get(this.cellKey(col, row));
                     if (slot) {
-                        grid.fillStyle(difficultyColor(slot.word.difficulty), 0.12);
+                        grid.fillStyle(difficultyColor(slot.word.difficulty), 0.2);
                         grid.fillRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
-                        grid.fillStyle(difficultyColor(slot.word.difficulty), 0.3);
+                        grid.fillStyle(difficultyColor(slot.word.difficulty), 0.9);
                         grid.fillCircle(x + CELL_SIZE - 10, y + 10, 4);
-                        grid.lineStyle(1, difficultyColor(slot.word.difficulty), 0.34);
+                        grid.lineStyle(2, difficultyColor(slot.word.difficulty), 0.54);
                         grid.strokeCircle(x + CELL_SIZE - 10, y + 10, 7);
                     }
                 }
-                grid.lineStyle(1, isPath ? 0x9bded5 : 0x456469, isPath ? 0.1 : 0.24);
+                grid.lineStyle(1, isPath ? 0xffffff : 0x66bad3, isPath ? 0.28 : 0.48);
                 grid.strokeRect(x, y, CELL_SIZE, CELL_SIZE);
             }
         }
@@ -304,33 +322,33 @@ export class GameScene extends Phaser.Scene {
         const entry = this.add.text(GRID_X + 6, GRID_Y + 4, 'SPAWN', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '12px',
-            color: '#b9fff3',
+            color: TEXT_ACCENT,
             fontStyle: 'bold',
         });
         entry.setDepth(3);
         const exit = this.add.text(GRID_X + GRID_WIDTH - 72, GRID_Y + GRID_HEIGHT - 25, 'EXIT', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '12px',
-            color: '#ffd1d1',
+            color: '#d94b78',
             fontStyle: 'bold',
         });
         exit.setDepth(3);
 
-        this.hoverCell = this.add.rectangle(0, 0, CELL_SIZE - 6, CELL_SIZE - 6, 0xffffff, 0.08);
-        this.hoverCell.setStrokeStyle(2, 0xffffff, 0.35);
+        this.hoverCell = this.add.rectangle(0, 0, CELL_SIZE - 6, CELL_SIZE - 6, 0xffffff, 0.16);
+        this.hoverCell.setStrokeStyle(2, 0xffffff, 0.72);
         this.hoverCell.setVisible(false);
         this.hoverCell.setDepth(20);
 
-        this.rangePreview = this.add.circle(0, 0, 10, 0x9fe9dc, 0.035);
-        this.rangePreview.setStrokeStyle(2, 0x9fe9dc, 0.24);
+        this.rangePreview = this.add.circle(0, 0, 10, 0xffd25c, 0.08);
+        this.rangePreview.setStrokeStyle(2, 0xffd25c, 0.42);
         this.rangePreview.setVisible(false);
         this.rangePreview.setDepth(5);
 
         this.hoverPopupText = this.add.text(0, 0, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '14px',
-            color: '#effffb',
-            backgroundColor: 'rgba(7, 17, 20, 0.9)',
+            color: TEXT_PRIMARY,
+            backgroundColor: POPUP_BACKGROUND,
             padding: { left: 8, right: 8, top: 5, bottom: 5 },
             lineSpacing: 4,
         });
@@ -349,22 +367,22 @@ export class GameScene extends Phaser.Scene {
 
     private createHud(): void {
         const side = this.add.graphics();
-        side.fillStyle(0x0b2024, 0.95);
+        side.fillStyle(SIDEBAR_COLOR, 0.96);
         side.fillRoundedRect(SIDE_X - 10, GRID_Y - 12, 188, GRID_HEIGHT + 24, 10);
-        side.lineStyle(1, 0x7ccac1, 0.28);
+        side.lineStyle(2, SIDEBAR_BORDER_COLOR, 0.75);
         side.strokeRoundedRect(SIDE_X - 10, GRID_Y - 12, 188, GRID_HEIGHT + 24, 10);
 
         this.add.text(SIDE_X, GRID_Y, 'WORD WORKSHOP', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '20px',
-            color: '#effffb',
+            color: TEXT_PRIMARY,
             fontStyle: 'bold',
         });
 
         this.hudText = this.add.text(SIDE_X, GRID_Y + 30, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '16px',
-            color: '#d3f4ee',
+            color: TEXT_PRIMARY,
             lineSpacing: 6,
         });
 
@@ -373,7 +391,7 @@ export class GameScene extends Phaser.Scene {
         this.waveText = this.add.text(SIDE_X, WAVE_STATUS_Y, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '14px',
-            color: '#b9fff3',
+            color: TEXT_SECONDARY,
             wordWrap: { width: 160 },
             lineSpacing: 4,
         });
@@ -383,19 +401,19 @@ export class GameScene extends Phaser.Scene {
         this.add.text(SIDE_X, SETTINGS_TITLE_Y, 'SETTINGS', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '15px',
-            color: '#effffb',
+            color: TEXT_PRIMARY,
             fontStyle: 'bold',
         });
 
         this.add.text(SIDE_X, DIFFICULTY_LABEL_Y, 'Difficulty', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '13px',
-            color: '#b9fff3',
+            color: TEXT_ACCENT,
         });
         this.difficultySliderLabel = this.add.text(SIDE_X + 160, DIFFICULTY_LABEL_Y, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '12px',
-            color: '#effffb',
+            color: TEXT_PRIMARY,
             fontStyle: 'bold',
         });
         this.difficultySliderLabel.setOrigin(1, 0);
@@ -403,12 +421,12 @@ export class GameScene extends Phaser.Scene {
         this.add.text(SIDE_X, WAVE_SIZE_LABEL_Y, 'Monsters / wave', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '13px',
-            color: '#b9fff3',
+            color: TEXT_ACCENT,
         });
         this.waveSizeSliderLabel = this.add.text(SIDE_X + 160, WAVE_SIZE_LABEL_Y, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '12px',
-            color: '#effffb',
+            color: TEXT_PRIMARY,
             fontStyle: 'bold',
         });
         this.waveSizeSliderLabel.setOrigin(1, 0);
@@ -416,12 +434,12 @@ export class GameScene extends Phaser.Scene {
         this.add.text(SIDE_X, HEALTH_LABEL_Y, 'Monster health', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '13px',
-            color: '#b9fff3',
+            color: TEXT_ACCENT,
         });
         this.healthSliderLabel = this.add.text(SIDE_X + 160, HEALTH_LABEL_Y, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '12px',
-            color: '#effffb',
+            color: TEXT_PRIMARY,
             fontStyle: 'bold',
         });
         this.healthSliderLabel.setOrigin(1, 0);
@@ -454,13 +472,13 @@ export class GameScene extends Phaser.Scene {
     private createDifficultySlider(): void {
         const x = SETTINGS_SLIDER_X;
         const y = DIFFICULTY_SLIDER_Y;
-        this.difficultySliderTrack = this.add.rectangle(x, y, DIFFICULTY_SLIDER_WIDTH, 8, 0x183238, 1);
-        this.difficultySliderTrack.setStrokeStyle(1, 0x86e5d8, 0.42);
+        this.difficultySliderTrack = this.add.rectangle(x, y, DIFFICULTY_SLIDER_WIDTH, 8, UI_TRACK_COLOR, 1);
+        this.difficultySliderTrack.setStrokeStyle(2, UI_TRACK_BORDER_COLOR, 0.68);
         this.difficultySliderTrack.setInteractive({ useHandCursor: true });
         this.difficultySliderFill = this.add.rectangle(x - DIFFICULTY_SLIDER_WIDTH / 2, y, 1, 8, this.difficultySetting.color, 0.88);
         this.difficultySliderFill.setOrigin(0, 0.5);
         this.difficultySliderKnob = this.add.circle(x, y, 9, this.difficultySetting.color, 1);
-        this.difficultySliderKnob.setStrokeStyle(2, 0xffffff, 0.72);
+        this.difficultySliderKnob.setStrokeStyle(3, 0xffffff, 0.92);
         this.difficultySliderKnob.setInteractive({ useHandCursor: true });
 
         DIFFICULTY_SETTING_LIST.forEach((setting, index) => {
@@ -471,13 +489,13 @@ export class GameScene extends Phaser.Scene {
         const softLabel = this.add.text(x - DIFFICULTY_SLIDER_WIDTH / 2, y + 15, DIFFICULTY_SETTING_LIST[0].label, {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '10px',
-            color: '#9ecac2',
+            color: '#27a67d',
         });
         softLabel.setOrigin(0, 0);
         const hardLabel = this.add.text(x + DIFFICULTY_SLIDER_WIDTH / 2, y + 15, DIFFICULTY_SETTING_LIST[DIFFICULTY_SETTING_LIST.length - 1].label, {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '10px',
-            color: '#ffb7bf',
+            color: '#bf4fcc',
         });
         hardLabel.setOrigin(1, 0);
 
@@ -490,23 +508,23 @@ export class GameScene extends Phaser.Scene {
     private createWaveSizeSlider(): void {
         const x = SETTINGS_SLIDER_X;
         const y = WAVE_SIZE_SLIDER_Y;
-        this.waveSizeSliderTrack = this.add.rectangle(x, y, WAVE_SIZE_SLIDER_WIDTH, 8, 0x183238, 1);
-        this.waveSizeSliderTrack.setStrokeStyle(1, 0x86e5d8, 0.42);
+        this.waveSizeSliderTrack = this.add.rectangle(x, y, WAVE_SIZE_SLIDER_WIDTH, 8, UI_TRACK_COLOR, 1);
+        this.waveSizeSliderTrack.setStrokeStyle(2, UI_TRACK_BORDER_COLOR, 0.68);
         this.waveSizeSliderTrack.setInteractive({ useHandCursor: true });
-        this.waveSizeSliderFill = this.add.rectangle(x - WAVE_SIZE_SLIDER_WIDTH / 2, y, 1, 8, 0x9fe9dc, 0.88);
+        this.waveSizeSliderFill = this.add.rectangle(x - WAVE_SIZE_SLIDER_WIDTH / 2, y, 1, 8, 0x52d9ff, 0.88);
         this.waveSizeSliderFill.setOrigin(0, 0.5);
-        this.waveSizeSliderKnob = this.add.circle(x, y, 8, 0xdffff8, 1);
-        this.waveSizeSliderKnob.setStrokeStyle(2, 0xffffff, 0.72);
+        this.waveSizeSliderKnob = this.add.circle(x, y, 8, 0x86e7ff, 1);
+        this.waveSizeSliderKnob.setStrokeStyle(3, 0xffffff, 0.92);
         this.waveSizeSliderKnob.setInteractive({ useHandCursor: true });
         this.add.text(x - WAVE_SIZE_SLIDER_WIDTH / 2, y + 15, `${MIN_WAVE_SIZE_MULTIPLIER.toFixed(1)}x`, {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '10px',
-            color: '#9ecac2',
+            color: TEXT_SECONDARY,
         }).setOrigin(0, 0);
         this.add.text(x + WAVE_SIZE_SLIDER_WIDTH / 2, y + 15, `${MAX_WAVE_SIZE_MULTIPLIER.toFixed(1)}x`, {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '10px',
-            color: '#9ecac2',
+            color: TEXT_SECONDARY,
         }).setOrigin(1, 0);
 
         const select = (pointer: Phaser.Input.Pointer) => this.setWaveSizeFromPointer(pointer.x);
@@ -518,23 +536,23 @@ export class GameScene extends Phaser.Scene {
     private createHealthSlider(): void {
         const x = SETTINGS_SLIDER_X;
         const y = HEALTH_SLIDER_Y;
-        this.healthSliderTrack = this.add.rectangle(x, y, HEALTH_SLIDER_WIDTH, 8, 0x183238, 1);
-        this.healthSliderTrack.setStrokeStyle(1, 0x86e5d8, 0.42);
+        this.healthSliderTrack = this.add.rectangle(x, y, HEALTH_SLIDER_WIDTH, 8, UI_TRACK_COLOR, 1);
+        this.healthSliderTrack.setStrokeStyle(2, UI_TRACK_BORDER_COLOR, 0.68);
         this.healthSliderTrack.setInteractive({ useHandCursor: true });
-        this.healthSliderFill = this.add.rectangle(x - HEALTH_SLIDER_WIDTH / 2, y, 1, 8, 0xff9bb2, 0.88);
+        this.healthSliderFill = this.add.rectangle(x - HEALTH_SLIDER_WIDTH / 2, y, 1, 8, 0xff8cb1, 0.9);
         this.healthSliderFill.setOrigin(0, 0.5);
-        this.healthSliderKnob = this.add.circle(x, y, 8, 0xffd1dc, 1);
-        this.healthSliderKnob.setStrokeStyle(2, 0xffffff, 0.72);
+        this.healthSliderKnob = this.add.circle(x, y, 8, 0xffc4d8, 1);
+        this.healthSliderKnob.setStrokeStyle(3, 0xffffff, 0.92);
         this.healthSliderKnob.setInteractive({ useHandCursor: true });
         this.add.text(x - HEALTH_SLIDER_WIDTH / 2, y + 15, `${MIN_HEALTH_MULTIPLIER.toFixed(1)}x`, {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '10px',
-            color: '#d9afb8',
+            color: TEXT_SECONDARY,
         }).setOrigin(0, 0);
         this.add.text(x + HEALTH_SLIDER_WIDTH / 2, y + 15, `${MAX_HEALTH_MULTIPLIER.toFixed(1)}x`, {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '10px',
-            color: '#d9afb8',
+            color: TEXT_SECONDARY,
         }).setOrigin(1, 0);
 
         const startDrag = (pointer: Phaser.Input.Pointer) => this.setMonsterHealthFromPointer(pointer.x);
@@ -636,15 +654,15 @@ export class GameScene extends Phaser.Scene {
 
     private createPromptPanel(): void {
         const panel = this.add.graphics();
-        panel.fillStyle(0x0d1c22, 0.98);
+        panel.fillStyle(PROMPT_PANEL_COLOR, 0.98);
         panel.fillRoundedRect(24, PANEL_Y, SCREEN_WIDTH - 48, 145, 12);
-        panel.lineStyle(1, 0x86e5d8, 0.36);
+        panel.lineStyle(2, PROMPT_PANEL_BORDER_COLOR, 0.76);
         panel.strokeRoundedRect(24, PANEL_Y, SCREEN_WIDTH - 48, 145, 12);
 
         this.promptText = this.add.text(42, PANEL_Y + 24, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '34px',
-            color: '#effffb',
+            color: TEXT_PRIMARY,
             wordWrap: { width: 1040 },
             lineSpacing: 8,
         });
@@ -653,14 +671,14 @@ export class GameScene extends Phaser.Scene {
         for (let index = 0; index < 4; index += 1) {
             const x = 42 + index * 260 + 120;
             const y = PANEL_Y + 100;
-            const bg = this.add.rectangle(x, y, 235, 38, 0x183238, 1);
-            bg.setStrokeStyle(1, 0x86e5d8, 0.42);
+            const bg = this.add.rectangle(x, y, 235, 38, UI_BUTTON_COLOR, 1);
+            bg.setStrokeStyle(2, UI_TRACK_BORDER_COLOR, 0.64);
             bg.setInteractive({ useHandCursor: true });
             bg.setVisible(false);
             const text = this.add.text(x, y, '', {
                 fontFamily: 'Arial, Helvetica, sans-serif',
                 fontSize: '17px',
-                color: '#effffb',
+                color: TEXT_PRIMARY,
                 fontStyle: 'bold',
             });
             text.setOrigin(0.5);
@@ -681,7 +699,7 @@ export class GameScene extends Phaser.Scene {
         this.promptStatusText = this.add.text(42, PANEL_Y + 122, '', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '14px',
-            color: '#b9c9ca',
+            color: TEXT_SECONDARY,
             wordWrap: { width: 880 },
             lineSpacing: 4,
         });
@@ -694,13 +712,13 @@ export class GameScene extends Phaser.Scene {
     private createRestartButton(): void {
         const x = SCREEN_WIDTH - 112;
         const y = PANEL_Y + 72;
-        this.restartButton = this.add.rectangle(x, y, 150, 44, 0x26393f, 1);
-        this.restartButton.setStrokeStyle(2, 0x9fe9dc, 0.6);
+        this.restartButton = this.add.rectangle(x, y, 150, 44, RESTART_BUTTON_COLOR, 1);
+        this.restartButton.setStrokeStyle(3, 0xffffff, 0.92);
         this.restartButton.setInteractive({ useHandCursor: true });
         const text = this.add.text(x, y, 'Restart', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '17px',
-            color: '#effffb',
+            color: TEXT_PRIMARY,
             fontStyle: 'bold',
         });
         text.setOrigin(0.5);
@@ -818,8 +836,8 @@ export class GameScene extends Phaser.Scene {
             button.text.setFontSize(option.word.length > 12 ? 14 : 17);
             button.text.setVisible(true);
             button.bg.setVisible(true);
-            button.bg.setFillStyle(0x183238, 1);
-            button.bg.setStrokeStyle(2, difficultyColor(option.difficulty), 0.55);
+            button.bg.setFillStyle(UI_BUTTON_COLOR, 1);
+            button.bg.setStrokeStyle(3, difficultyColor(option.difficulty), 0.88);
         });
     }
 
@@ -907,9 +925,9 @@ export class GameScene extends Phaser.Scene {
         const label = this.add.text(center.x, center.y + 24, towerIcon(def.kind), {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '18px',
-            color: '#effffb',
+            color: TEXT_PRIMARY,
             fontStyle: 'bold',
-            backgroundColor: 'rgba(7, 17, 20, 0.74)',
+            backgroundColor: TOWER_LABEL_BACKGROUND,
             padding: { left: 3, right: 3, top: 1, bottom: 1 },
         });
         label.setOrigin(0.5);
@@ -917,9 +935,9 @@ export class GameScene extends Phaser.Scene {
         const levelLabel = this.add.text(center.x + 17, center.y - 18, '1', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '12px',
-            color: '#081114',
+            color: TEXT_PRIMARY,
             fontStyle: 'bold',
-            backgroundColor: '#effffb',
+            backgroundColor: '#fff4a8',
             padding: { left: 4, right: 4, top: 1, bottom: 1 },
         });
         levelLabel.setOrigin(0.5);
@@ -927,9 +945,9 @@ export class GameScene extends Phaser.Scene {
         const jamLabel = this.add.text(center.x, center.y - 34, 'PAUSE', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '12px',
-            color: '#ffdee1',
+            color: '#8c2047',
             fontStyle: 'bold',
-            backgroundColor: 'rgba(130, 18, 32, 0.9)',
+            backgroundColor: 'rgba(255, 219, 229, 0.96)',
             padding: { left: 4, right: 4, top: 1, bottom: 1 },
         });
         jamLabel.setOrigin(0.5);
@@ -1150,16 +1168,26 @@ export class GameScene extends Phaser.Scene {
         const radius = brute ? 15 : runner ? 10 : 12;
         const speed = (runner ? 76 : brute ? 40 : 56) * this.enemySpeedMultiplierForWave(this.wave);
         const color = runner ? 0xffef73 : brute ? 0xff6f61 : 0xff9bb2;
+        const happyEmoji = runner ? '😄' : brute ? '😜' : '😆';
+        const sadEmoji = runner ? '😢' : brute ? '😟' : '🥺';
+        const faceSize = brute ? '31px' : runner ? '24px' : '27px';
 
         if (!this.isSpawnPointClear(radius)) {
             return false;
         }
 
-        const body = this.add.circle(point.x, point.y, radius, color, 1);
-        body.setStrokeStyle(2, 0x071114, 0.8);
+        const body = this.add.circle(point.x, point.y, radius + 1, color, 0.36);
+        body.setStrokeStyle(2, 0xffffff, 0.95);
         body.setDepth(6);
+        const face = this.add.text(point.x, point.y, happyEmoji, {
+            fontFamily: ENEMY_FACE_FONT,
+            fontSize: faceSize,
+        });
+        face.setOrigin(0.5);
+        face.setDepth(9);
         const core = this.add.circle(point.x, point.y, brute ? 6 : 4, 0xffffff, 0.72);
         core.setDepth(7);
+        core.setVisible(false);
         const eyeOffsetX = brute ? 5 : runner ? 3.5 : 4;
         const eyeOffsetY = brute ? -4 : -3;
         const eyeRadius = brute ? 2.1 : runner ? 1.6 : 1.8;
@@ -1167,6 +1195,8 @@ export class GameScene extends Phaser.Scene {
         const rightEye = this.add.circle(point.x + eyeOffsetX, point.y + eyeOffsetY, eyeRadius, 0x071114, 0.95);
         leftEye.setDepth(8);
         rightEye.setDepth(8);
+        leftEye.setVisible(false);
+        rightEye.setVisible(false);
         const healthBack = this.add.rectangle(point.x, point.y - 22, 28, 4, 0x14191c, 1);
         healthBack.setDepth(7);
         const healthFill = this.add.rectangle(point.x - 14, point.y - 22, 28, 4, 0x74ff9b, 1);
@@ -1196,6 +1226,10 @@ export class GameScene extends Phaser.Scene {
             motion: 'path',
             alive: true,
             body,
+            face,
+            happyEmoji,
+            sadEmoji,
+            sadUntil: 0,
             core,
             leftEye,
             rightEye,
@@ -1267,7 +1301,10 @@ export class GameScene extends Phaser.Scene {
 
         this.resolvePathTraffic();
         this.resolveEnemyCollisions(time);
-        this.enemies.forEach((enemy) => this.constrainEnemyToPath(enemy, enemy.motion === 'knocked'));
+        this.enemies.forEach((enemy) => {
+            this.constrainEnemyToPath(enemy, enemy.motion === 'knocked');
+            this.updateEnemyFace(enemy, time);
+        });
     }
 
     private updateKnockedEnemy(enemy: Enemy, time: number, deltaSeconds: number): void {
@@ -1276,16 +1313,16 @@ export class GameScene extends Phaser.Scene {
         this.setEnemyPosition(enemy, nextX, nextY);
         this.constrainEnemyToPath(enemy, true);
 
-        const damping = Math.pow(0.08, deltaSeconds);
+        const damping = Math.pow(0.11, deltaSeconds);
         enemy.vx *= damping;
         enemy.vy *= damping;
-        enemy.body.setFillStyle(0xfff2a8, 1);
+        enemy.body.setFillStyle(0xfff2a8, 0.92);
         this.spawnSmoke(enemy.body.x, enemy.body.y, 0xffdd99, 0.25);
 
         const velocity = Math.hypot(enemy.vx, enemy.vy);
         if (time >= enemy.knockbackUntil || velocity < 30) {
             enemy.motion = time < enemy.stunnedUntil ? 'stunned' : 'returning';
-            enemy.body.setFillStyle(enemy.motion === 'stunned' ? 0xaee8ff : 0xffd49a, 1);
+            enemy.body.setFillStyle(enemy.motion === 'stunned' ? 0xaee8ff : 0xffd49a, 0.84);
             if (enemy.motion === 'stunned') {
                 this.floatingText(enemy.body.x, enemy.body.y - 26, 'STUN', '#bdefff');
             }
@@ -1295,12 +1332,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     private updateStunnedEnemy(enemy: Enemy, time: number): void {
-        enemy.body.setFillStyle(0xaee8ff, 0.9 + Math.sin(time / 80) * 0.1);
+        enemy.body.setFillStyle(0xaee8ff, 0.82 + Math.sin(time / 80) * 0.1);
         enemy.core.setScale(1 + Math.sin(time / 70) * 0.15);
         if (time >= enemy.stunnedUntil) {
             enemy.core.setScale(1);
             enemy.motion = 'returning';
-            enemy.body.setFillStyle(0xffd49a, 1);
+            enemy.body.setFillStyle(0xffd49a, 0.84);
         }
         this.updateEnemyHealthBar(enemy);
     }
@@ -1317,14 +1354,14 @@ export class GameScene extends Phaser.Scene {
             enemy.vx = 0;
             enemy.vy = 0;
             enemy.core.setScale(1);
-            enemy.body.setFillStyle(enemy.baseColor, 1);
+            enemy.body.setFillStyle(enemy.baseColor, 0.36);
             this.setEnemyPosition(enemy, nearest.point.x, nearest.point.y);
             this.spark(nearest.point.x, nearest.point.y, 0xb9fff3, 5);
         } else {
             const direction = normalize(nearest.point.x - enemy.body.x, nearest.point.y - enemy.body.y);
             this.setEnemyPosition(enemy, enemy.body.x + direction.x * returnSpeed * deltaSeconds, enemy.body.y + direction.y * returnSpeed * deltaSeconds);
             this.constrainEnemyToPath(enemy, false);
-            enemy.body.setFillStyle(0xffd49a, 1);
+            enemy.body.setFillStyle(0xffd49a, 0.84);
         }
 
         this.updateEnemyHealthBar(enemy);
@@ -1396,8 +1433,8 @@ export class GameScene extends Phaser.Scene {
         }
 
         const relativeVelocity = (first.vx - second.vx) * normal.x + (first.vy - second.vy) * normal.y;
-        const collisionSpeed = Math.max(0, -relativeVelocity, Math.hypot(first.vx, first.vy) * 0.22, Math.hypot(second.vx, second.vy) * 0.22);
-        if (collisionSpeed < 22) {
+        const collisionSpeed = Math.max(0, -relativeVelocity, Math.hypot(first.vx, first.vy) * 0.28, Math.hypot(second.vx, second.vy) * 0.28);
+        if (collisionSpeed < 18) {
             return;
         }
 
@@ -1406,8 +1443,8 @@ export class GameScene extends Phaser.Scene {
         this.applyCollisionVelocity(first, normal.x * impulse * (second.mass / totalMass), normal.y * impulse * (second.mass / totalMass), time);
         this.applyCollisionVelocity(second, -normal.x * impulse * (first.mass / totalMass), -normal.y * impulse * (first.mass / totalMass), time);
 
-        if (Math.random() < 0.35) {
-            this.spark((first.body.x + second.body.x) / 2, (first.body.y + second.body.y) / 2, 0xfff2a8, 4);
+        if (Math.random() < 0.4) {
+            this.spark((first.body.x + second.body.x) / 2, (first.body.y + second.body.y) / 2, 0xfff2a8, 5);
         }
     }
 
@@ -1443,13 +1480,19 @@ export class GameScene extends Phaser.Scene {
             return;
         }
 
-        enemy.vx += vx;
-        enemy.vy += vy;
-        if (impactSpeed >= 36 && enemy.motion !== 'knocked') {
+        const spin = Phaser.Math.FloatBetween(-0.16, 0.16);
+        const cos = Math.cos(spin);
+        const sin = Math.sin(spin);
+        const twistedX = vx * cos - vy * sin;
+        const twistedY = vx * sin + vy * cos;
+        const chainBoost = enemy.motion === 'knocked' ? 1.04 : 1;
+        enemy.vx += twistedX * chainBoost;
+        enemy.vy += twistedY * chainBoost;
+        if (impactSpeed >= 30 && enemy.motion !== 'knocked') {
             enemy.motion = 'knocked';
-            enemy.knockbackUntil = Math.max(enemy.knockbackUntil, time + 180 + impactSpeed * 1.2);
-            enemy.stunnedUntil = Math.max(enemy.stunnedUntil, time + 90 + impactSpeed * 0.7);
-            enemy.body.setFillStyle(0xffd49a, 1);
+            enemy.knockbackUntil = Math.max(enemy.knockbackUntil, time + 230 + impactSpeed * 1.25);
+            enemy.stunnedUntil = Math.max(enemy.stunnedUntil, time + 105 + impactSpeed * 0.74);
+            enemy.body.setFillStyle(0xffd49a, 0.96);
         }
     }
 
@@ -1485,8 +1528,12 @@ export class GameScene extends Phaser.Scene {
         if (outwardVelocity > 0) {
             enemy.vx -= (1 + WALL_RESTITUTION) * outwardVelocity * normal.x;
             enemy.vy -= (1 + WALL_RESTITUTION) * outwardVelocity * normal.y;
-            if (outwardVelocity > 80 && Math.random() < 0.2) {
-                this.spark(correctedX, correctedY, 0xb9fff3, 3);
+            const tangent = { x: -normal.y, y: normal.x };
+            const tangentKick = Phaser.Math.FloatBetween(-1, 1) * Math.min(46, outwardVelocity * 0.18);
+            enemy.vx += tangent.x * tangentKick;
+            enemy.vy += tangent.y * tangentKick;
+            if (outwardVelocity > 70 && Math.random() < 0.28) {
+                this.spark(correctedX, correctedY, 0xb9fff3, 4);
             }
         }
     }
@@ -1500,6 +1547,7 @@ export class GameScene extends Phaser.Scene {
 
     private setEnemyPosition(enemy: Enemy, x: number, y: number): void {
         enemy.body.setPosition(x, y);
+        enemy.face.setPosition(x, y);
         enemy.core.setPosition(x, y);
         enemy.leftEye.setPosition(x - enemy.eyeOffsetX, y + enemy.eyeOffsetY);
         enemy.rightEye.setPosition(x + enemy.eyeOffsetX, y + enemy.eyeOffsetY);
@@ -1512,6 +1560,7 @@ export class GameScene extends Phaser.Scene {
         enemy.healthBack.setPosition(enemy.body.x, enemy.body.y - 22);
         enemy.healthFill.setPosition(enemy.body.x - 14, enemy.body.y - 22);
         enemy.healthFill.width = 28 * ratio;
+        enemy.face.setPosition(enemy.body.x, enemy.body.y);
         enemy.core.setPosition(enemy.body.x, enemy.body.y);
         enemy.leftEye.setPosition(enemy.body.x - enemy.eyeOffsetX, enemy.body.y + enemy.eyeOffsetY);
         enemy.rightEye.setPosition(enemy.body.x + enemy.eyeOffsetX, enemy.body.y + enemy.eyeOffsetY);
@@ -2020,10 +2069,12 @@ export class GameScene extends Phaser.Scene {
         }
 
         enemy.hp -= damage;
-        enemy.body.setFillStyle(0xffffff, 1);
+        enemy.sadUntil = Math.max(enemy.sadUntil, this.time.now + 320);
+        this.updateEnemyFace(enemy, this.time.now);
+        enemy.body.setFillStyle(0xffffff, 0.94);
         this.time.delayedCall(55, () => {
             if (enemy.alive && enemy.motion === 'path') {
-                enemy.body.setFillStyle(enemy.burningUntil > this.time.now ? 0xff7a2f : enemy.slowUntil > this.time.now ? 0xaee8ff : enemy.baseColor, 1);
+                enemy.body.setFillStyle(enemy.burningUntil > this.time.now ? 0xff7a2f : enemy.slowUntil > this.time.now ? 0xaee8ff : enemy.baseColor, enemy.burningUntil > this.time.now || enemy.slowUntil > this.time.now ? 0.86 : 0.36);
             }
         });
         this.damageNumber(enemy.body.x, enemy.body.y - 18, Math.round(damage), color);
@@ -2098,7 +2149,7 @@ export class GameScene extends Phaser.Scene {
         enemy.burnDamage = Math.max(enemy.burnDamage, burnDamage);
         enemy.burnSpreadAt = Math.min(enemy.burnSpreadAt || now, now + 180);
         enemy.burnSpreadRadius = Math.max(enemy.burnSpreadRadius, spreadRadius);
-        enemy.body.setFillStyle(0xff7a2f, 1);
+        enemy.body.setFillStyle(0xff7a2f, 0.88);
     }
 
     private updateBurningEnemy(enemy: Enemy, time: number): void {
@@ -2107,13 +2158,13 @@ export class GameScene extends Phaser.Scene {
                 enemy.burnDamage = 0;
                 enemy.burnSpreadRadius = 0;
                 if (enemy.motion === 'path') {
-                    enemy.body.setFillStyle(enemy.baseColor, 1);
+                    enemy.body.setFillStyle(enemy.baseColor, 0.36);
                 }
             }
             return;
         }
 
-        enemy.body.setFillStyle(0xff7a2f, 0.86 + Math.sin(time / 90) * 0.12);
+        enemy.body.setFillStyle(0xff7a2f, 0.74 + Math.sin(time / 90) * 0.12);
         if (time >= enemy.nextBurnTickAt) {
             enemy.nextBurnTickAt = time + 430;
             this.damageEnemy(enemy, enemy.burnDamage, 0xfff35b);
@@ -2147,7 +2198,7 @@ export class GameScene extends Phaser.Scene {
             const angle = Math.random() * Math.PI * 2;
             away = { x: Math.cos(angle), y: Math.sin(angle) };
         }
-        const jitter = Phaser.Math.FloatBetween(-0.45, 0.45);
+        const jitter = Phaser.Math.FloatBetween(-0.62, 0.62);
         const cos = Math.cos(jitter);
         const sin = Math.sin(jitter);
         const scatter = {
@@ -2155,12 +2206,13 @@ export class GameScene extends Phaser.Scene {
             y: away.x * sin + away.y * cos,
         };
         const now = this.time.now;
-        enemy.vx = enemy.vx * 0.35 + scatter.x * force;
-        enemy.vy = enemy.vy * 0.35 + scatter.y * force;
+        const swirlForce = force * Phaser.Math.FloatBetween(0.08, 0.18);
+        enemy.vx = enemy.vx * 0.4 + scatter.x * force - scatter.y * swirlForce;
+        enemy.vy = enemy.vy * 0.4 + scatter.y * force + scatter.x * swirlForce;
         enemy.motion = 'knocked';
-        enemy.knockbackUntil = Math.max(enemy.knockbackUntil, now + 260 + force * 0.65);
-        enemy.stunnedUntil = Math.max(enemy.stunnedUntil, now + 260 + force * 0.45 + stunMs);
-        enemy.body.setFillStyle(color, 0.92);
+        enemy.knockbackUntil = Math.max(enemy.knockbackUntil, now + 270 + force * 0.72);
+        enemy.stunnedUntil = Math.max(enemy.stunnedUntil, now + 220 + force * 0.48 + stunMs);
+        enemy.body.setFillStyle(color, 0.88);
     }
 
     private killEnemy(enemy: Enemy, color: number): void {
@@ -2178,12 +2230,34 @@ export class GameScene extends Phaser.Scene {
     private removeEnemy(enemy: Enemy): void {
         enemy.alive = false;
         enemy.body.destroy();
+        enemy.face.destroy();
         enemy.core.destroy();
         enemy.leftEye.destroy();
         enemy.rightEye.destroy();
         enemy.healthBack.destroy();
         enemy.healthFill.destroy();
         this.enemies = this.enemies.filter((candidate) => candidate.id !== enemy.id);
+    }
+
+    private updateEnemyFace(enemy: Enemy, time: number): void {
+        if (!enemy.alive) {
+            return;
+        }
+
+        const emoji = time < enemy.sadUntil ? enemy.sadEmoji : enemy.happyEmoji;
+        if (enemy.face.text !== emoji) {
+            enemy.face.setText(emoji);
+        }
+
+        const speed = Math.hypot(enemy.vx, enemy.vy);
+        const chaos = enemy.motion === 'knocked' || enemy.motion === 'returning' ? Math.min(1, speed / 360) : 0;
+        const drift = Math.sin((time + enemy.id * 23) / 150) * (enemy.motion === 'path' ? 0.9 : 0.2);
+        const wobbleX = Math.cos((time + enemy.id * 17) / 36) * chaos * 3;
+        const wobbleY = Math.sin((time + enemy.id * 29) / 42) * chaos * 2.6;
+        const travelAngle = speed > 6 ? Phaser.Math.RadToDeg(Math.atan2(enemy.vy, enemy.vx)) : 0;
+        enemy.face.setPosition(enemy.body.x + wobbleX, enemy.body.y + drift - chaos * 2.5 + wobbleY);
+        enemy.face.setAngle(Math.sin((time + enemy.id * 13) / 34) * 20 * (0.25 + chaos) + travelAngle * chaos * 0.16);
+        enemy.face.setScale(1 + chaos * 0.26, 1 - chaos * 0.1);
     }
 
     private removeProjectile(projectile: Projectile): void {
@@ -2197,12 +2271,12 @@ export class GameScene extends Phaser.Scene {
         this.lives = 0;
         this.promptText.setText('');
         this.setPromptStatus('Nice try. The restart button is ready when you want another run.');
-        const overlay = this.add.rectangle(GRID_X + GRID_WIDTH / 2, GRID_Y + GRID_HEIGHT / 2, GRID_WIDTH, GRID_HEIGHT, 0x081114, 0.55);
+        const overlay = this.add.rectangle(GRID_X + GRID_WIDTH / 2, GRID_Y + GRID_HEIGHT / 2, GRID_WIDTH, GRID_HEIGHT, 0xff9ac0, 0.34);
         overlay.setDepth(50);
         const text = this.add.text(overlay.x, overlay.y, 'TRY AGAIN', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '52px',
-            color: '#ffdee1',
+            color: '#ffffff',
             fontStyle: 'bold',
         });
         text.setOrigin(0.5);
@@ -2263,8 +2337,8 @@ export class GameScene extends Phaser.Scene {
     private showRangePreview(x: number, y: number, radius: number, color: number): void {
         this.rangePreview.setPosition(x, y);
         this.rangePreview.setRadius(radius);
-        this.rangePreview.setFillStyle(color, 0.035);
-        this.rangePreview.setStrokeStyle(2, color, 0.24);
+        this.rangePreview.setFillStyle(color, 0.08);
+        this.rangePreview.setStrokeStyle(2, color, 0.42);
         this.rangePreview.setVisible(true);
     }
 
