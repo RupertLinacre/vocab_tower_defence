@@ -64,6 +64,7 @@ export type Tower = {
     nextFireAt: number;
     jamUntil: number;
     base: Phaser.GameObjects.Arc;
+    decoration: Phaser.GameObjects.Graphics;
     cap: Phaser.GameObjects.Arc;
     label: Phaser.GameObjects.Text;
     levelLabel: Phaser.GameObjects.Text;

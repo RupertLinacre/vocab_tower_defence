@@ -1,14 +1,8 @@
 import type { ClueKind, WordEntry } from './gameTypes';
 import { choose, shuffle } from './gameHelpers';
 
-export function createClue(word: WordEntry, clueKind: ClueKind): string {
-    if (clueKind === 'definition') {
-        return `Which word matches this definition: "${word.shortDefinition}"?`;
-    }
-    if (clueKind === 'synonym') {
-        return `Which word is a synonym of "${choose(word.synonyms)}"?`;
-    }
-    return `Which word is an antonym of "${choose(word.antonyms)}"?`;
+export function createClue(word: WordEntry, _clueKind: ClueKind): string {
+    return word.shortDefinition;
 }
 
 export function createAnswerOptions(word: WordEntry, allWords: WordEntry[]): WordEntry[] {
@@ -38,7 +32,7 @@ export function createAnswerOptions(word: WordEntry, allWords: WordEntry[]): Wor
 }
 
 export function learnedWordText(word: WordEntry): string {
-    return `${word.word}: ${word.definition}`;
+    return word.word;
 }
 
 function isClearDistractor(target: WordEntry, candidate: WordEntry): boolean {

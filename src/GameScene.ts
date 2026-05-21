@@ -101,6 +101,7 @@ export class GameScene extends Phaser.Scene {
     private gameOver = false;
     private hudText!: Phaser.GameObjects.Text;
     private promptText!: Phaser.GameObjects.Text;
+    private promptFeedbackText!: Phaser.GameObjects.Text;
     private promptStatusText!: Phaser.GameObjects.Text;
     private waveText!: Phaser.GameObjects.Text;
     private hoverCell!: Phaser.GameObjects.Rectangle;
@@ -144,7 +145,7 @@ export class GameScene extends Phaser.Scene {
             this.handleBoardClick(pointer.x, pointer.y, this.time.now);
         });
 
-        this.showIdlePrompt(`${this.difficultySetting.label} difficulty selected.`);
+        this.showIdlePrompt();
         this.updateHud();
     }
 
@@ -264,20 +265,12 @@ export class GameScene extends Phaser.Scene {
         return kinds[Math.abs(col * 5 + row * 3) % kinds.length];
     }
 
-    private clueKindForSlot(col: number, row: number): ClueKind {
-        const clueKinds: ClueKind[] = ['definition', 'definition', 'synonym', 'antonym'];
-        return clueKinds[Math.abs(col * 2 + row * 5) % clueKinds.length];
+    private clueKindForSlot(_col: number, _row: number): ClueKind {
+        return 'definition';
     }
 
     private chooseWeightedClueKind(): ClueKind {
-        const roll = Math.random();
-        if (roll < 0.5) {
-            return 'definition';
-        }
-        if (roll < 0.75) {
-            return 'synonym';
-        }
-        return 'antonym';
+        return 'definition';
     }
 
     private drawArena(): void {
@@ -667,17 +660,28 @@ export class GameScene extends Phaser.Scene {
             lineSpacing: 8,
         });
 
+        this.promptFeedbackText = this.add.text(SCREEN_WIDTH / 2, PANEL_Y + 96, '', {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '24px',
+            color: TEXT_PRIMARY,
+            fontStyle: 'bold',
+            align: 'center',
+            wordWrap: { width: 1030 },
+        });
+        this.promptFeedbackText.setOrigin(0.5);
+        this.promptFeedbackText.setVisible(false);
+
         this.optionButtons = [];
         for (let index = 0; index < 4; index += 1) {
             const x = 42 + index * 260 + 120;
-            const y = PANEL_Y + 100;
-            const bg = this.add.rectangle(x, y, 235, 38, UI_BUTTON_COLOR, 1);
+            const y = PANEL_Y + 96;
+            const bg = this.add.rectangle(x, y, 242, 46, UI_BUTTON_COLOR, 1);
             bg.setStrokeStyle(2, UI_TRACK_BORDER_COLOR, 0.64);
             bg.setInteractive({ useHandCursor: true });
             bg.setVisible(false);
             const text = this.add.text(x, y, '', {
                 fontFamily: 'Arial, Helvetica, sans-serif',
-                fontSize: '17px',
+                fontSize: '22px',
                 color: TEXT_PRIMARY,
                 fontStyle: 'bold',
             });
@@ -748,7 +752,7 @@ export class GameScene extends Phaser.Scene {
 
         if (!this.isBuildableCell(col, row)) {
             this.flashCell(col, row, 0xff5c6c);
-            this.setPromptStatus('That square is part of the path. Try one of the darker build pads beside it.');
+            this.setPromptStatus('That square is part of the path.');
             return;
         }
 
@@ -759,7 +763,7 @@ export class GameScene extends Phaser.Scene {
         const slot = this.buildSlots.get(this.cellKey(col, row));
         if (!slot) {
             this.flashCell(col, row, 0xff5c6c);
-            this.setPromptStatus('That spot is not ready for a tower. Pick a colored build pad.');
+            this.setPromptStatus('That spot is not ready for a tower.');
             return;
         }
 
@@ -780,7 +784,7 @@ export class GameScene extends Phaser.Scene {
 
     private startUpgradeChallenge(tower: Tower, time: number): void {
         if (tower.jamUntil > time) {
-            this.setPromptStatus(`${TOWER_DEFS[tower.kind].name} is taking a tiny reboot pause. Try the upgrade again in a moment.`);
+            this.setPromptStatus(`${TOWER_DEFS[tower.kind].name} is paused for a moment.`);
             this.pulseTower(tower, 0xff5c6c, 0.2);
             return;
         }
@@ -819,21 +823,22 @@ export class GameScene extends Phaser.Scene {
         }
 
         const challenge = this.currentPrompt;
+        this.promptFeedbackText.setVisible(false);
         if (challenge.mode === 'build') {
             const def = TOWER_DEFS[challenge.towerKind ?? 'dart'];
             this.promptText.setText(challenge.clue);
-            this.setPromptStatus(`${towerIcon(def.kind)} ${def.name} • choose the matching word to place it.`);
+            this.setPromptStatus(`${towerIcon(def.kind)} ${def.name} tower`);
         } else {
             const def = challenge.tower ? TOWER_DEFS[challenge.tower.kind] : undefined;
             this.promptText.setText(challenge.clue);
-            this.setPromptStatus(`${def ? `${towerIcon(def.kind)} ${def.name} • ` : ''}choose the matching word to upgrade. A miss only causes a tiny reboot pause.`);
+            this.setPromptStatus(def && challenge.tower ? `${towerIcon(def.kind)} ${def.name} level ${challenge.tower.level}` : 'Tower upgrade');
         }
 
         this.optionButtons.forEach((button, index) => {
             const option = challenge.options[index];
             button.word = option;
             button.text.setText(option.word);
-            button.text.setFontSize(option.word.length > 12 ? 14 : 17);
+            button.text.setFontSize(option.word.length > 12 ? 18 : 22);
             button.text.setVisible(true);
             button.bg.setVisible(true);
             button.bg.setFillStyle(UI_BUTTON_COLOR, 1);
@@ -866,7 +871,7 @@ export class GameScene extends Phaser.Scene {
             }
 
             const tower = this.placeTower(challenge.col, challenge.row, challenge.towerKind, challenge.word, challenge.clueKind);
-            this.clearChallenge(`Correct. ${learnedWordText(challenge.word)} ${TOWER_DEFS[challenge.towerKind].name} deployed.`);
+            this.clearChallenge(`Correct: ${learnedWordText(challenge.word)}. ${TOWER_DEFS[challenge.towerKind].name} deployed.`);
             if (tower) {
                 this.pulseTower(tower, TOWER_DEFS[tower.kind].accent, 0.18);
             }
@@ -875,7 +880,7 @@ export class GameScene extends Phaser.Scene {
 
         if (challenge.tower) {
             this.upgradeTower(challenge.tower, challenge.word);
-            this.clearChallenge(`Correct. ${learnedWordText(challenge.word)} Upgraded to level ${challenge.tower.level}.`);
+            this.clearChallenge(`Correct: ${learnedWordText(challenge.word)}. Level ${challenge.tower.level}.`);
         }
     }
 
@@ -886,7 +891,7 @@ export class GameScene extends Phaser.Scene {
                 const center = this.cellCenter(challenge.col, challenge.row);
                 this.floatingText(center.x, center.y - 18, 'TRY AGAIN', '#ffb3bb');
             }
-            this.clearChallenge(`Not quite: ${option.word}. The answer was ${learnedWordText(challenge.word)} Try that build pad again when ready.`);
+            this.clearChallenge(`Not quite: ${option.word}. Correct answer: ${learnedWordText(challenge.word)}.`);
             return;
         }
 
@@ -894,12 +899,11 @@ export class GameScene extends Phaser.Scene {
             challenge.tower.jamUntil = this.time.now + 1700;
             this.wrongAnswerEffect(challenge.tower);
         }
-        this.clearChallenge(`Not quite: ${option.word}. The answer was ${learnedWordText(challenge.word)} The tower is rebooting for a moment.`);
+        this.clearChallenge(`Not quite: ${option.word}. Correct answer: ${learnedWordText(challenge.word)}.`);
     }
 
     private clearChallenge(message: string): void {
         this.currentPrompt = undefined;
-        this.hideAnswerOptions();
         this.showIdlePrompt(message);
     }
 
@@ -919,7 +923,7 @@ export class GameScene extends Phaser.Scene {
         const base = this.add.circle(center.x, center.y, 20, def.color, 0.88);
         base.setStrokeStyle(3, 0xf5fffd, 0.7);
         base.setDepth(8);
-        this.drawTowerDecoration(kind, center.x, center.y, def.color, def.accent);
+        const decoration = this.drawTowerDecoration(kind, center.x, center.y, def.color, def.accent);
         const cap = this.add.circle(center.x, center.y, 8, def.accent, 1);
         cap.setDepth(10);
         const label = this.add.text(center.x, center.y + 24, towerIcon(def.kind), {
@@ -969,6 +973,7 @@ export class GameScene extends Phaser.Scene {
             nextFireAt: this.time.now + Phaser.Math.Between(80, 450),
             jamUntil: 0,
             base,
+            decoration,
             cap,
             label,
             levelLabel,
@@ -979,7 +984,7 @@ export class GameScene extends Phaser.Scene {
         this.towers.push(tower);
         this.pulseTower(tower, def.accent);
         this.updateTowerStars(tower);
-        this.setPromptStatus(`${def.name} tower built. Its next upgrade word is hidden until you answer the clue.`);
+        this.setPromptStatus(`${def.name} tower ready.`);
         this.updateHud();
         return tower;
     }
@@ -1036,7 +1041,7 @@ export class GameScene extends Phaser.Scene {
         }
     }
 
-    private drawTowerDecoration(kind: TowerKind, x: number, y: number, color: number, accent: number): void {
+    private drawTowerDecoration(kind: TowerKind, x: number, y: number, color: number, accent: number): Phaser.GameObjects.Graphics {
         const graphics = this.add.graphics();
         graphics.setDepth(9);
         graphics.lineStyle(2, 0xf5fffd, 0.48);
@@ -1047,7 +1052,7 @@ export class GameScene extends Phaser.Scene {
             graphics.strokeTriangle(x, y - 22, x - 7, y + 2, x + 7, y + 2);
             graphics.fillStyle(0xffffff, 0.9);
             graphics.fillCircle(x, y - 2, 5);
-            return;
+            return graphics;
         }
 
         if (kind === 'cannon') {
@@ -1056,7 +1061,7 @@ export class GameScene extends Phaser.Scene {
             graphics.strokeRoundedRect(x - 18, y - 9, 36, 18, 8);
             graphics.fillStyle(accent, 0.98);
             this.drawMiniStar(graphics, x, y, 8, 3.6);
-            return;
+            return graphics;
         }
 
         if (kind === 'missile') {
@@ -1065,7 +1070,7 @@ export class GameScene extends Phaser.Scene {
             graphics.strokeTriangle(x, y - 23, x - 10, y + 8, x + 10, y + 8);
             graphics.fillStyle(color, 0.9);
             graphics.fillCircle(x, y + 2, 8);
-            return;
+            return graphics;
         }
 
         if (kind === 'laser') {
@@ -1075,7 +1080,7 @@ export class GameScene extends Phaser.Scene {
             graphics.strokeCircle(x, y, 15);
             graphics.lineBetween(x - 14, y, x + 14, y);
             graphics.lineBetween(x, y - 14, x, y + 14);
-            return;
+            return graphics;
         }
 
         if (kind === 'ricochet') {
@@ -1083,7 +1088,7 @@ export class GameScene extends Phaser.Scene {
             graphics.strokeCircle(x, y, 14);
             graphics.lineStyle(2, 0xffffff, 0.65);
             graphics.strokeCircle(x + 3, y - 3, 8);
-            return;
+            return graphics;
         }
 
         if (kind === 'cluster') {
@@ -1091,7 +1096,7 @@ export class GameScene extends Phaser.Scene {
             this.drawMiniStar(graphics, x, y, 13, 5.5);
             graphics.lineStyle(2, color, 0.84);
             graphics.strokeCircle(x, y, 16);
-            return;
+            return graphics;
         }
 
         graphics.fillStyle(accent, 0.95);
@@ -1100,6 +1105,7 @@ export class GameScene extends Phaser.Scene {
         graphics.fillTriangle(x, y - 13, x - 8, y + 10, x + 8, y + 10);
         graphics.lineStyle(2, 0xffffff, 0.5);
         graphics.strokeCircle(x, y, 15);
+        return graphics;
     }
 
     private drawMiniStar(graphics: Phaser.GameObjects.Graphics, x: number, y: number, outerRadius: number, innerRadius: number): void {
@@ -1127,7 +1133,7 @@ export class GameScene extends Phaser.Scene {
             this.spawnRemaining = this.currentWaveTotal;
             this.spawnDelay = this.spawnDelayForWave(this.wave);
             this.nextSpawnAt = time + 2600;
-            this.setPromptStatus(`Wave ${this.wave} is getting ready. You have a short breather for building and upgrades.`);
+            this.resetBoardForWaveStart();
             return;
         }
 
@@ -1140,6 +1146,34 @@ export class GameScene extends Phaser.Scene {
                 this.nextSpawnAt = time + 90;
             }
         }
+    }
+
+    private resetBoardForWaveStart(): void {
+        this.currentPrompt = undefined;
+        this.showIdlePrompt();
+
+        for (const tower of this.towers) {
+            this.destroyTower(tower);
+        }
+
+        this.towers = [];
+        this.nextTowerId = 1;
+
+        for (const projectile of [...this.projectiles]) {
+            this.removeProjectile(projectile);
+        }
+        this.nextProjectileId = 1;
+    }
+
+    private destroyTower(tower: Tower): void {
+        tower.base.destroy();
+        tower.decoration.destroy();
+        tower.cap.destroy();
+        tower.label.destroy();
+        tower.levelLabel.destroy();
+        tower.jamLabel.destroy();
+        tower.stars.forEach((star) => star.destroy());
+        tower.stars = [];
     }
 
     private spawnDelayForWave(wave: number): number {
@@ -2344,12 +2378,12 @@ export class GameScene extends Phaser.Scene {
 
     private hoverTextForSlot(slot: BuildSlot): string {
         const def = TOWER_DEFS[slot.towerKind];
-        return `${towerIcon(def.kind)} ${def.name}\n${difficultyEmoji(slot.word.difficulty)} ${formatDifficulty(slot.word.difficulty)} • ${clueLabel(slot.clueKind)}`;
+        return `${towerIcon(def.kind)} ${def.name}\nRange ${def.range} • ${difficultyEmoji(slot.word.difficulty)} ${formatDifficulty(slot.word.difficulty)} • ${clueLabel(slot.clueKind)}`;
     }
 
     private hoverTextForTower(tower: Tower): string {
         const def = TOWER_DEFS[tower.kind];
-        return `${towerIcon(def.kind)} ${def.name} L${tower.level}\n${difficultyEmoji(tower.word.difficulty)} ${formatDifficulty(tower.word.difficulty)} • ${clueLabel(tower.clueKind)}`;
+        return `${towerIcon(def.kind)} ${def.name} L${tower.level}\nRange ${Math.round(this.towerStats(tower).range)} • ${difficultyEmoji(tower.word.difficulty)} ${formatDifficulty(tower.word.difficulty)} • ${clueLabel(tower.clueKind)}`;
     }
 
     private showHoverPopup(pointerX: number, pointerY: number, text: string): void {
@@ -2531,9 +2565,16 @@ export class GameScene extends Phaser.Scene {
     }
 
     private showIdlePrompt(message?: string): void {
-        const instructions = 'Choose a colored build pad to place a tower, or choose a built tower to try its next upgrade.';
+        const instructions = 'Click a tower spot to build, or click a tower to upgrade it.';
+        this.hideAnswerOptions();
         this.promptText.setText('');
-        this.setPromptStatus(message ? `${message}\n${instructions}` : instructions);
+        if (message) {
+            this.promptFeedbackText.setText(message);
+            this.promptFeedbackText.setVisible(true);
+        } else {
+            this.promptFeedbackText.setVisible(false);
+        }
+        this.setPromptStatus(instructions);
     }
 
     private cellCenter(col: number, row: number): Point {
