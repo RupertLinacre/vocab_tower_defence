@@ -2,7 +2,7 @@ import type { ClueKind, WordEntry } from './gameTypes';
 import { choose, shuffle } from './gameHelpers';
 
 export function createClue(word: WordEntry, _clueKind: ClueKind): string {
-    return word.shortDefinition;
+    return word.definition;
 }
 
 export function createAnswerOptions(word: WordEntry, allWords: WordEntry[]): WordEntry[] {

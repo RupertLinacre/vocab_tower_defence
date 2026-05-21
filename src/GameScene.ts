@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { ALL_VOCAB } from './vocab';
 import { DEFAULT_GAME_DIFFICULTY, DIFFICULTY_SETTING_LIST, DIFFICULTY_SETTINGS, isGameDifficultyKey, type GameDifficultyKey, type GameDifficultySetting } from './difficultySettings';
 import { createAnswerOptions, createClue, learnedWordText } from './learning';
+import { BASE_SCHOOL_YEAR_OPTIONS, DEFAULT_BASE_SCHOOL_YEAR, isBaseSchoolYear, schoolYearColor, schoolYearForDifficulty, schoolYearLabel } from './schoolYears';
 import {
     CELL_SIZE,
     GRID_COLS,
@@ -34,8 +35,10 @@ import {
     towerIcon,
 } from './gameHelpers';
 import type { BuildSlot, ClueKind, Difficulty, Enemy, Point, Projectile, ProjectileKind, Prompt, Tower, TowerKind, TowerStats, WordEntry } from './gameTypes';
+import type { SchoolYear } from './gameTypes';
 
 const DIFFICULTY_STORAGE_KEY = 'vocabTowerDefenceDifficulty';
+const BASE_YEAR_STORAGE_KEY = 'vocabTowerDefenceBaseYear';
 const WAVE_SIZE_STORAGE_KEY = 'vocabTowerDefenceWaveSize';
 const HEALTH_STORAGE_KEY = 'vocabTowerDefenceMonsterHealth';
 const MIN_WAVE_SIZE_MULTIPLIER = 0.5;
@@ -45,13 +48,16 @@ const MAX_HEALTH_MULTIPLIER = 4;
 const SETTINGS_TITLE_Y = GRID_Y + 112;
 const DIFFICULTY_LABEL_Y = GRID_Y + 144;
 const DIFFICULTY_SLIDER_Y = GRID_Y + 178;
-const WAVE_SIZE_LABEL_Y = GRID_Y + 228;
-const WAVE_SIZE_SLIDER_Y = GRID_Y + 262;
-const HEALTH_LABEL_Y = GRID_Y + 312;
-const HEALTH_SLIDER_Y = GRID_Y + 346;
-const WAVE_STATUS_Y = GRID_Y + 424;
+const BASE_YEAR_LABEL_Y = GRID_Y + 222;
+const BASE_YEAR_SLIDER_Y = GRID_Y + 256;
+const WAVE_SIZE_LABEL_Y = GRID_Y + 300;
+const WAVE_SIZE_SLIDER_Y = GRID_Y + 334;
+const HEALTH_LABEL_Y = GRID_Y + 378;
+const HEALTH_SLIDER_Y = GRID_Y + 412;
+const WAVE_STATUS_Y = GRID_Y + 486;
 const SETTINGS_SLIDER_X = SIDE_X + 78;
 const DIFFICULTY_SLIDER_WIDTH = 160;
+const BASE_YEAR_SLIDER_WIDTH = 160;
 const WAVE_SIZE_SLIDER_WIDTH = 160;
 const HEALTH_SLIDER_WIDTH = 160;
 const SCENE_BACKGROUND_COLOR = 0x8fe2ff;
@@ -90,6 +96,7 @@ export class GameScene extends Phaser.Scene {
     private nextProjectileId = 1;
     private difficultyKey: GameDifficultyKey = DEFAULT_GAME_DIFFICULTY;
     private difficultySetting: GameDifficultySetting = DIFFICULTY_SETTINGS[DEFAULT_GAME_DIFFICULTY];
+    private baseSchoolYear: SchoolYear = DEFAULT_BASE_SCHOOL_YEAR;
     private waveSizeMultiplier = 1;
     private monsterHealthMultiplier = 1;
     private lives = 20;
@@ -114,6 +121,10 @@ export class GameScene extends Phaser.Scene {
     private difficultySliderFill!: Phaser.GameObjects.Rectangle;
     private difficultySliderKnob!: Phaser.GameObjects.Arc;
     private difficultySliderLabel!: Phaser.GameObjects.Text;
+    private baseYearSliderTrack!: Phaser.GameObjects.Rectangle;
+    private baseYearSliderFill!: Phaser.GameObjects.Rectangle;
+    private baseYearSliderKnob!: Phaser.GameObjects.Arc;
+    private baseYearSliderLabel!: Phaser.GameObjects.Text;
     private waveSizeSliderTrack!: Phaser.GameObjects.Rectangle;
     private waveSizeSliderFill!: Phaser.GameObjects.Rectangle;
     private waveSizeSliderKnob!: Phaser.GameObjects.Arc;
@@ -154,6 +165,8 @@ export class GameScene extends Phaser.Scene {
         const stored = window.localStorage.getItem(DIFFICULTY_STORAGE_KEY);
         this.difficultyKey = isGameDifficultyKey(stored) ? stored : DEFAULT_GAME_DIFFICULTY;
         this.difficultySetting = DIFFICULTY_SETTINGS[this.difficultyKey];
+        const storedBaseYear = window.localStorage.getItem(BASE_YEAR_STORAGE_KEY);
+        this.baseSchoolYear = isBaseSchoolYear(storedBaseYear) ? storedBaseYear : DEFAULT_BASE_SCHOOL_YEAR;
         const storedWaveSize = Number(window.localStorage.getItem(WAVE_SIZE_STORAGE_KEY));
         this.waveSizeMultiplier = Number.isFinite(storedWaveSize) ? clamp(storedWaveSize, MIN_WAVE_SIZE_MULTIPLIER, MAX_WAVE_SIZE_MULTIPLIER) : 1;
         const storedHealth = Number(window.localStorage.getItem(HEALTH_STORAGE_KEY));
@@ -232,10 +245,10 @@ export class GameScene extends Phaser.Scene {
     private assignBuildSlotWords(): void {
         this.buildSlots.clear();
         const pools: Record<Difficulty, WordEntry[]> = {
-            easy: ALL_VOCAB.filter((entry) => entry.difficulty === 'easy'),
-            medium: ALL_VOCAB.filter((entry) => entry.difficulty === 'medium'),
-            hard: ALL_VOCAB.filter((entry) => entry.difficulty === 'hard'),
-            veryHard: ALL_VOCAB.filter((entry) => entry.difficulty === 'veryHard'),
+            easy: this.wordPoolForDifficulty('easy'),
+            medium: this.wordPoolForDifficulty('medium'),
+            hard: this.wordPoolForDifficulty('hard'),
+            veryHard: this.wordPoolForDifficulty('veryHard'),
         };
 
         for (let row = 0; row < GRID_ROWS; row += 1) {
@@ -248,16 +261,22 @@ export class GameScene extends Phaser.Scene {
                 const nearest = this.nearestPathPoint(center);
                 const progressRatio = nearest.progress / this.pathTotalLength;
                 const difficulty: Difficulty = progressRatio < 0.28 ? 'easy' : progressRatio < 0.55 ? 'medium' : progressRatio < 0.82 ? 'hard' : 'veryHard';
-                const pool = pools[difficulty];
+                const pool = pools[difficulty].length > 0 ? pools[difficulty] : ALL_VOCAB;
                 this.buildSlots.set(this.cellKey(col, row), {
                     col,
                     row,
+                    difficulty,
                     word: choose(pool),
                     towerKind: this.towerKindForSlot(difficulty, col, row),
                     clueKind: this.clueKindForSlot(col, row),
                 });
             }
         }
+    }
+
+    private wordPoolForDifficulty(difficulty: Difficulty): WordEntry[] {
+        const schoolYear = schoolYearForDifficulty(difficulty, this.baseSchoolYear);
+        return ALL_VOCAB.filter((entry) => entry.difficulty === schoolYear);
     }
 
     private towerKindForSlot(difficulty: Difficulty, col: number, row: number): TowerKind {
@@ -299,11 +318,11 @@ export class GameScene extends Phaser.Scene {
                     grid.fillRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
                     const slot = this.buildSlots.get(this.cellKey(col, row));
                     if (slot) {
-                        grid.fillStyle(difficultyColor(slot.word.difficulty), 0.2);
+                        grid.fillStyle(difficultyColor(slot.difficulty), 0.2);
                         grid.fillRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
-                        grid.fillStyle(difficultyColor(slot.word.difficulty), 0.9);
+                        grid.fillStyle(difficultyColor(slot.difficulty), 0.9);
                         grid.fillCircle(x + CELL_SIZE - 10, y + 10, 4);
-                        grid.lineStyle(2, difficultyColor(slot.word.difficulty), 0.54);
+                        grid.lineStyle(2, difficultyColor(slot.difficulty), 0.54);
                         grid.strokeCircle(x + CELL_SIZE - 10, y + 10, 7);
                     }
                 }
@@ -411,6 +430,19 @@ export class GameScene extends Phaser.Scene {
         });
         this.difficultySliderLabel.setOrigin(1, 0);
 
+        this.add.text(SIDE_X, BASE_YEAR_LABEL_Y, 'Base year', {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '13px',
+            color: TEXT_ACCENT,
+        });
+        this.baseYearSliderLabel = this.add.text(SIDE_X + 160, BASE_YEAR_LABEL_Y, '', {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '12px',
+            color: TEXT_PRIMARY,
+            fontStyle: 'bold',
+        });
+        this.baseYearSliderLabel.setOrigin(1, 0);
+
         this.add.text(SIDE_X, WAVE_SIZE_LABEL_Y, 'Monsters / wave', {
             fontFamily: 'Arial, Helvetica, sans-serif',
             fontSize: '13px',
@@ -438,6 +470,7 @@ export class GameScene extends Phaser.Scene {
         this.healthSliderLabel.setOrigin(1, 0);
 
         this.createDifficultySlider();
+        this.createBaseYearSlider();
         this.createWaveSizeSlider();
         this.createHealthSlider();
 
@@ -448,6 +481,11 @@ export class GameScene extends Phaser.Scene {
 
             if (this.isPointerNearSettingsSlider(pointer.x, pointer.y, DIFFICULTY_SLIDER_Y, DIFFICULTY_SLIDER_WIDTH)) {
                 this.setDifficultyFromPointer(pointer.x);
+                return;
+            }
+
+            if (this.isPointerNearSettingsSlider(pointer.x, pointer.y, BASE_YEAR_SLIDER_Y, BASE_YEAR_SLIDER_WIDTH)) {
+                this.setBaseYearFromPointer(pointer.x);
                 return;
             }
 
@@ -496,6 +534,40 @@ export class GameScene extends Phaser.Scene {
         this.difficultySliderTrack.on('pointerdown', select);
         this.difficultySliderKnob.on('pointerdown', select);
         this.updateDifficultySlider();
+    }
+
+    private createBaseYearSlider(): void {
+        const x = SETTINGS_SLIDER_X;
+        const y = BASE_YEAR_SLIDER_Y;
+        this.baseYearSliderTrack = this.add.rectangle(x, y, BASE_YEAR_SLIDER_WIDTH, 8, UI_TRACK_COLOR, 1);
+        this.baseYearSliderTrack.setStrokeStyle(2, UI_TRACK_BORDER_COLOR, 0.68);
+        this.baseYearSliderTrack.setInteractive({ useHandCursor: true });
+        this.baseYearSliderFill = this.add.rectangle(x - BASE_YEAR_SLIDER_WIDTH / 2, y, 1, 8, schoolYearColor(this.baseSchoolYear), 0.88);
+        this.baseYearSliderFill.setOrigin(0, 0.5);
+        this.baseYearSliderKnob = this.add.circle(x, y, 8, schoolYearColor(this.baseSchoolYear), 1);
+        this.baseYearSliderKnob.setStrokeStyle(3, 0xffffff, 0.92);
+        this.baseYearSliderKnob.setInteractive({ useHandCursor: true });
+
+        BASE_SCHOOL_YEAR_OPTIONS.forEach((schoolYear, index) => {
+            const ratio = BASE_SCHOOL_YEAR_OPTIONS.length === 1 ? 0 : index / (BASE_SCHOOL_YEAR_OPTIONS.length - 1);
+            const markerX = x - BASE_YEAR_SLIDER_WIDTH / 2 + BASE_YEAR_SLIDER_WIDTH * ratio;
+            this.add.rectangle(markerX, y, 3, 16, schoolYearColor(schoolYear), 0.95);
+        });
+        this.add.text(x - BASE_YEAR_SLIDER_WIDTH / 2, y + 15, schoolYearLabel(BASE_SCHOOL_YEAR_OPTIONS[0]), {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '10px',
+            color: TEXT_SECONDARY,
+        }).setOrigin(0, 0);
+        this.add.text(x + BASE_YEAR_SLIDER_WIDTH / 2, y + 15, schoolYearLabel(BASE_SCHOOL_YEAR_OPTIONS[BASE_SCHOOL_YEAR_OPTIONS.length - 1]), {
+            fontFamily: 'Arial, Helvetica, sans-serif',
+            fontSize: '10px',
+            color: TEXT_SECONDARY,
+        }).setOrigin(1, 0);
+
+        const select = (pointer: Phaser.Input.Pointer) => this.setBaseYearFromPointer(pointer.x);
+        this.baseYearSliderTrack.on('pointerdown', select);
+        this.baseYearSliderKnob.on('pointerdown', select);
+        this.updateBaseYearSlider();
     }
 
     private createWaveSizeSlider(): void {
@@ -587,6 +659,38 @@ export class GameScene extends Phaser.Scene {
         this.difficultySliderKnob.setPosition(left + DIFFICULTY_SLIDER_WIDTH * ratio, DIFFICULTY_SLIDER_Y);
         this.difficultySliderKnob.setFillStyle(this.difficultySetting.color, 1);
         this.difficultySliderLabel.setText(this.difficultySetting.label);
+    }
+
+    private selectBaseSchoolYear(schoolYear: SchoolYear): void {
+        if (schoolYear === this.baseSchoolYear) {
+            return;
+        }
+
+        this.baseSchoolYear = schoolYear;
+        window.localStorage.setItem(BASE_YEAR_STORAGE_KEY, schoolYear);
+        this.assignBuildSlotWords();
+        this.currentPrompt = undefined;
+        this.updateBaseYearSlider();
+        this.showIdlePrompt(`${schoolYearLabel(schoolYear)} base selected. New word prompts now start there.`);
+    }
+
+    private setBaseYearFromPointer(pointerX: number): void {
+        const left = SETTINGS_SLIDER_X - BASE_YEAR_SLIDER_WIDTH / 2;
+        const ratio = clamp((pointerX - left) / BASE_YEAR_SLIDER_WIDTH, 0, 1);
+        const index = Math.round(ratio * (BASE_SCHOOL_YEAR_OPTIONS.length - 1));
+        this.selectBaseSchoolYear(BASE_SCHOOL_YEAR_OPTIONS[index]);
+    }
+
+    private updateBaseYearSlider(): void {
+        const index = BASE_SCHOOL_YEAR_OPTIONS.findIndex((schoolYear) => schoolYear === this.baseSchoolYear);
+        const ratio = BASE_SCHOOL_YEAR_OPTIONS.length === 1 ? 0 : Math.max(0, index) / (BASE_SCHOOL_YEAR_OPTIONS.length - 1);
+        const left = SETTINGS_SLIDER_X - BASE_YEAR_SLIDER_WIDTH / 2;
+        const color = schoolYearColor(this.baseSchoolYear);
+        this.baseYearSliderFill.width = Math.max(1, BASE_YEAR_SLIDER_WIDTH * ratio);
+        this.baseYearSliderFill.setFillStyle(color, 0.88);
+        this.baseYearSliderKnob.setPosition(left + BASE_YEAR_SLIDER_WIDTH * ratio, BASE_YEAR_SLIDER_Y);
+        this.baseYearSliderKnob.setFillStyle(color, 1);
+        this.baseYearSliderLabel.setText(schoolYearLabel(this.baseSchoolYear));
     }
 
     private setWaveSizeFromPointer(pointerX: number): void {
@@ -778,7 +882,7 @@ export class GameScene extends Phaser.Scene {
             row,
             towerKind,
         });
-        this.flashCell(col, row, difficultyColor(slot.word.difficulty));
+        this.flashCell(col, row, difficultyColor(slot.difficulty));
         this.renderChallenge();
     }
 
@@ -804,7 +908,7 @@ export class GameScene extends Phaser.Scene {
             clueKind,
             tower,
         });
-        this.pulseTower(tower, difficultyColor(tower.word.difficulty), 0.22);
+        this.pulseTower(tower, difficultyColor(tower.difficulty), 0.22);
         this.renderChallenge();
     }
 
@@ -842,7 +946,7 @@ export class GameScene extends Phaser.Scene {
             button.text.setVisible(true);
             button.bg.setVisible(true);
             button.bg.setFillStyle(UI_BUTTON_COLOR, 1);
-            button.bg.setStrokeStyle(3, difficultyColor(option.difficulty), 0.88);
+            button.bg.setStrokeStyle(3, schoolYearColor(option.difficulty), 0.88);
         });
     }
 
@@ -1016,7 +1120,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     private nextTowerWord(difficulty: Difficulty, avoidWords: string[]): WordEntry {
-        const pool = ALL_VOCAB.filter((entry) => entry.difficulty === difficulty);
+        const pool = this.wordPoolForDifficulty(difficulty);
         const unused = shuffle(pool.filter((entry) => !avoidWords.includes(entry.word)));
         if (unused.length > 0) {
             return unused[0];
@@ -2330,6 +2434,7 @@ export class GameScene extends Phaser.Scene {
         this.hudText.setText(`Lives ${this.lives}\nWave ${this.wave}\nTowers ${this.towers.length}`);
         this.waveText.setText(`${this.spawnRemaining} queued\n${this.enemies.length} on the path\nNext in ${nextWaveSeconds}s\n${this.projectiles.length} shots flying`);
         this.updateDifficultySlider();
+        this.updateBaseYearSlider();
         this.updateWaveSizeSlider();
         this.updateHealthSlider();
     }
@@ -2350,7 +2455,7 @@ export class GameScene extends Phaser.Scene {
         const tower = this.towers.find((candidate) => candidate.col === col && candidate.row === row);
         const buildable = this.isBuildableCell(col, row) && !tower;
         const slot = this.buildSlots.get(this.cellKey(col, row));
-        const hoverColor = buildable && slot ? difficultyColor(slot.word.difficulty) : tower ? 0xffe38a : 0xff5c6c;
+        const hoverColor = buildable && slot ? difficultyColor(slot.difficulty) : tower ? 0xffe38a : 0xff5c6c;
         this.hoverCell.setPosition(center.x, center.y);
         this.hoverCell.setVisible(true);
         this.hoverCell.setFillStyle(hoverColor, buildable ? 0.14 : 0.1);
@@ -2360,7 +2465,7 @@ export class GameScene extends Phaser.Scene {
             this.showRangePreview(tower.x, tower.y, this.towerStats(tower).range, 0xffe38a);
             this.showHoverPopup(x, y, this.hoverTextForTower(tower));
         } else if (buildable && slot) {
-            this.showRangePreview(center.x, center.y, TOWER_DEFS[slot.towerKind].range, difficultyColor(slot.word.difficulty));
+            this.showRangePreview(center.x, center.y, TOWER_DEFS[slot.towerKind].range, difficultyColor(slot.difficulty));
             this.showHoverPopup(x, y, this.hoverTextForSlot(slot));
         } else {
             this.rangePreview.setVisible(false);
@@ -2378,12 +2483,12 @@ export class GameScene extends Phaser.Scene {
 
     private hoverTextForSlot(slot: BuildSlot): string {
         const def = TOWER_DEFS[slot.towerKind];
-        return `${towerIcon(def.kind)} ${def.name}\nRange ${def.range} • ${difficultyEmoji(slot.word.difficulty)} ${formatDifficulty(slot.word.difficulty)} • ${clueLabel(slot.clueKind)}`;
+        return `${towerIcon(def.kind)} ${def.name}\nRange ${def.range} • ${difficultyEmoji(slot.difficulty)} ${formatDifficulty(slot.difficulty)} • ${schoolYearLabel(slot.word.difficulty)} • ${clueLabel(slot.clueKind)}`;
     }
 
     private hoverTextForTower(tower: Tower): string {
         const def = TOWER_DEFS[tower.kind];
-        return `${towerIcon(def.kind)} ${def.name} L${tower.level}\nRange ${Math.round(this.towerStats(tower).range)} • ${difficultyEmoji(tower.word.difficulty)} ${formatDifficulty(tower.word.difficulty)} • ${clueLabel(tower.clueKind)}`;
+        return `${towerIcon(def.kind)} ${def.name} L${tower.level}\nRange ${Math.round(this.towerStats(tower).range)} • ${difficultyEmoji(tower.difficulty)} ${formatDifficulty(tower.difficulty)} • ${schoolYearLabel(tower.word.difficulty)} • ${clueLabel(tower.clueKind)}`;
     }
 
     private showHoverPopup(pointerX: number, pointerY: number, text: string): void {

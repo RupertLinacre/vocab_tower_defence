@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 
 export type Difficulty = 'easy' | 'medium' | 'hard' | 'veryHard';
+export type SchoolYear = 'reception' | 'year1' | 'year2' | 'year3' | 'year4' | 'year5' | 'year6' | 'year6Plus' | 'year6PlusPlus';
 export type TowerKind = 'dart' | 'cannon' | 'missile' | 'laser' | 'ricochet' | 'cluster' | 'fire';
 export type ProjectileKind = 'dart' | 'cannon' | 'missile' | 'ricochet' | 'cluster' | 'fragment' | 'fire';
 export type ClueKind = 'definition' | 'synonym' | 'antonym';
@@ -9,8 +10,7 @@ export type EnemyMotion = 'path' | 'knocked' | 'stunned' | 'returning';
 
 export type WordEntry = {
     word: string;
-    difficulty: Difficulty;
-    shortDefinition: string;
+    difficulty: SchoolYear;
     definition: string;
     synonyms: string[];
     antonyms: string[];
@@ -150,6 +150,7 @@ export type Prompt = {
 export type BuildSlot = {
     col: number;
     row: number;
+    difficulty: Difficulty;
     word: WordEntry;
     towerKind: TowerKind;
     clueKind: ClueKind;
